@@ -9,6 +9,13 @@ LIVE_ALLOWED=ALLOWED|frozenset(['apps/live/src/lib/auth.ts','apps/live/tests/lib
 LIVE_COMMAND='python3 /Users/andrewyang/.codex/worktrees/djs1-brand-20261014/CloudHandStack/scratch/brand-20261014/verify-committed-plane-live.py'
 LIVE_TITLE='Plane scoped Live amendment actual protocol types build and receipt controls'
 
+SIGNING_SCHEMA='djs8-scoped-signing-amendment-v1'
+LIVE_SOURCE='46aa52c93fe7a461350ca3b7609034c8705347a1'
+SIGNING_ALLOWED=LIVE_ALLOWED|frozenset(['.jenkins/scripts/sign-and-sbom.sh','.jenkins/scripts/verify-ci-contract.py'])
+SIGNING_COMMAND='python3 /Users/andrewyang/.codex/worktrees/djs1-brand-20261014/CloudHandStack/scratch/brand-20261014/verify-committed-plane-signing.py'
+SIGNING_TITLE='Plane signing amendment source binding and exact registry controls'
+MARKERS={'djs8-ci-tree-equivalence-v1':'DJS8-CI-TREE-EQUIVALENCE-V1:', 'djs8-scoped-live-amendment-v1':'DJS8-SCOPED-LIVE-AMENDMENT-V1:',SIGNING_SCHEMA:'DJS8-SCOPED-SIGNING-AMENDMENT-V1:'}
+RECEIPT_KEYS={'djs8-ci-tree-equivalence-v1':'ci_tree_equivalence','djs8-scoped-live-amendment-v1':'live_amendment_receipt',SIGNING_SCHEMA:'signing_amendment_receipt'}
 TRUSTED_AUTHOR='97e3f3ff-f92a-4003-a961-0465c458b993'
 CONTROL_COMMAND='python3 /Users/andrewyang/.codex/worktrees/djs1-brand-20261014/CloudHandStack/scratch/brand-20261014/verify-committed-plane-ci.py'
 CONTROL_TITLE='Plane CI-only committed tree and independent control binding'
@@ -19,7 +26,9 @@ def validate_control_comment(comments,proof,sha):
  row=rows[0];body=row.get('comment_html') or ''
  assert row.get('created_by')==row.get('actor')==TRUSTED_AUTHOR,'control author is not the fixed trusted evidence publisher'
  command=LIVE_COMMAND if proof['schema']=='djs8-scoped-live-amendment-v1' else CONTROL_COMMAND
+ if proof['schema']==SIGNING_SCHEMA:command=SIGNING_COMMAND
  title=LIVE_TITLE if proof['schema']=='djs8-scoped-live-amendment-v1' else CONTROL_TITLE
+ if proof['schema']==SIGNING_SCHEMA:title=SIGNING_TITLE
  for required in ['④⑤开发中','<td>结论</td><td>✅ 通过</td>','<td>退出码</td><td><code>0</code></td>', '<td>测的是什么</td><td>'+title+'</td>', '<td>命令</td><td><code>'+html.escape(command+' '+sha)+'</code></td>', 'CI_BUILD_SOURCE_SHA='+sha, 'CI_CONTROL_LOG_SHA256='+proof['ci_control_log_sha256']]:
   assert required in body,'committed CI control contract is missing'
  assert '未提交改动' not in body,'committed control tree must be clean'
@@ -37,9 +46,25 @@ def tree(sha):
 def verify(proof,sha):
  assert re.fullmatch('[0-9a-f]{40}',sha) and git('rev-parse','HEAD').decode().strip()==sha
  assert not git('status','--porcelain','--untracked-files=no'),'tracked worktree must be clean'
- assert proof['schema'] in ['djs8-ci-tree-equivalence-v1','djs8-scoped-live-amendment-v1'] and proof['tested_source_sha']==BASE and proof['build_source_sha']==sha and proof['development_evidence']==EVIDENCE
+ return verify_tree(proof,sha)
+
+def verify_tree(proof,sha):
+ assert re.fullmatch('[0-9a-f]{40}',sha)
+ assert proof['schema'] in MARKERS and proof['tested_source_sha']==BASE and proof['build_source_sha']==sha and proof['development_evidence']==EVIDENCE
  assert proof['independent_review']=='APPROVE' and re.fullmatch('ev-[0-9a-f]{12}',proof['ci_control_evidence']) and re.fullmatch('[0-9a-f]{64}',proof['ci_control_log_sha256'])
- allowed=LIVE_ALLOWED if proof['schema']=='djs8-scoped-live-amendment-v1' else ALLOWED
+ allowed=SIGNING_ALLOWED if proof['schema']==SIGNING_SCHEMA else LIVE_ALLOWED if proof['schema']=='djs8-scoped-live-amendment-v1' else ALLOWED
+ if proof['schema']==SIGNING_SCHEMA:
+  prior=proof['previous_live_receipt']
+  assert prior['schema']=='djs8-scoped-live-amendment-v1' and prior['build_source_sha']==LIVE_SOURCE
+  assert prior['ci_control_evidence']=='ev-9705105277b5','must reuse the actual committed Live control'
+  verify_tree(prior,LIVE_SOURCE)
+  assert hashlib.sha256(json.dumps(prior,sort_keys=True,separators=(',',':')).encode()).hexdigest()==proof['previous_live_receipt_sha256']
+  previous,current=tree(LIVE_SOURCE),tree(sha)
+  amendment={p for p in previous.keys()|current.keys() if previous.get(p)!=current.get(p)}
+  assert amendment and amendment <= (ALLOWED|frozenset(['.jenkins/scripts/sign-and-sbom.sh','.jenkins/scripts/verify-ci-contract.py'])),'signing amendment must change CI only'
+  assert '.jenkins/scripts/sign-and-sbom.sh' in amendment
+  assert proof['component_validation_sources']=={'pg_web':BASE,'live_amendment':LIVE_SOURCE,'signing_amendment':sha,'old_live_suite':'historical only'}
+  assert proof['original_suite_reexecuted'] is False and proof['live_validation_reexecuted'] is False
  if proof['schema']=='djs8-scoped-live-amendment-v1':
   assert proof['live_validation']=={'source_sha':sha,'actual_locked_client_connection_protocol':True,'preview_updates_rejected':True,'ordinary_updates_accepted':True,'denied_auth_no_connection':True,'credential_safe_logging':True,'tsc_and_complete_live_build':True,'original_suite_reexecuted':False}
  before,after=tree(BASE),tree(sha);changed={p for p in before.keys()|after.keys() if before.get(p)!=after.get(p)}
@@ -58,3 +83,28 @@ if __name__=='__main__':
  try:
   proof=verify(json.loads(pathlib.Path(sys.argv[1]).read_text()),sys.argv[2]);print(json.dumps({'tested_source_sha':BASE,'build_source_sha':sys.argv[2],'full_unit_test_suite_executed':False,'receipt_mode':proof['schema'],'protected_tree_verified':True,'ci_tree_equivalence_verified':proof['schema']=='djs8-ci-tree-equivalence-v1'}))
  except Exception:raise SystemExit('Scoped receipt/tree verification rejected') from None
+
+def validate_prior_live_comment(comments,proof):
+ if proof['schema']!=SIGNING_SCHEMA:return
+ prior=proof['previous_live_receipt'];marker=MARKERS[prior['schema']]+LIVE_SOURCE
+ rows=[r for r in comments if marker in (r.get('comment_html') or '')]
+ assert len(rows)==1,'exact original Live receipt required'
+ row=rows[0];assert row.get('created_by')==row.get('actor')==TRUSTED_AUTHOR
+ encoded=re.search(r'<pre>(.*?)</pre>',row.get('comment_html') or '',re.S)
+ assert encoded and json.loads(html.unescape(encoded.group(1)))==prior,'prior receipt differs from trusted Plane readback'
+ validate_control_comment(comments,prior,LIVE_SOURCE)
+
+def validate_release_binding(payload):
+ v=payload['release_build_validation'];source=payload['source']['commit']
+ active=[(schema,key) for schema,key in RECEIPT_KEYS.items() if v.get(key)]
+ assert len(active)<=1,'conflicting evidence modes'
+ if active:
+  schema,key=active[0];proof=v[key];assert proof['schema']==schema
+  verify(proof,source)
+  assert v['development_evidence_reference']==proof['development_evidence']
+  assert v['development_evidence_verified_source_sha']==v['tested_source_sha']==proof['tested_source_sha']
+  assert v['build_source_sha']==source and v['full_unit_test_suite_executed'] is False
+  if schema==SIGNING_SCHEMA:assert v['component_validation_sources']==proof['component_validation_sources']
+  elif schema=='djs8-scoped-live-amendment-v1':assert v['component_validation_sources']=={'pg_web':BASE,'live_amendment':source,'old_live_suite':'historical only'}
+ else:assert v['development_evidence_verified_source_sha']==source
+ return True

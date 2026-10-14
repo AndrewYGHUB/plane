@@ -104,7 +104,7 @@ def validate(inputs: Inputs) -> None:
         'Path(".plane-release/development-evidence-status.json")',
         "p['release_build_validation']['development_evidence_item'] == 'DJS-8'",
         "p['release_build_validation']['development_evidence_stage'] == 'dev'",
-        "p['release_build_validation']['development_evidence_verified_source_sha'] == p['source']['commit']",
+        "runpy.run_path('.jenkins/scripts/verify-ci-tree-equivalence.py')['validate_release_binding'](p)",
         "p['release_build_validation']['development_evidence_verified_worktree_clean'] is True",
         "p['release_build_validation']['development_evidence_verified_test_result'] == 'passed'",
         "p['release_build_validation']['development_evidence_verified_exit_code'] == 0",
@@ -344,7 +344,8 @@ def validate(inputs: Inputs) -> None:
     require(
         're.fullmatch(r"ev-[0-9a-f]{12}", evidence)' in inputs.supply
         and '!= "plane-readback-verified"' in inputs.supply
-        and 'development_evidence_verified_source_sha") != source' in inputs.supply,
+        and 'runpy.run_path(".jenkins/scripts/verify-ci-tree-equivalence.py")["validate_release_binding"](payload)' in inputs.supply
+        and 'raise SystemExit("release manifest scoped evidence/source binding rejected") from None' in inputs.supply,
         "signing must reject a release manifest without Plane-readback evidence",
     )
     require(
@@ -613,8 +614,8 @@ def main() -> None:
     expect_failure(
         inputs,
         "supply",
-        'development_evidence_verified_source_sha") != source',
-        'development_evidence_verified_source_sha") != "anything"',
+        'runpy.run_path(".jenkins/scripts/verify-ci-tree-equivalence.py")["validate_release_binding"](payload)',
+        'True',
     )
     expect_failure(
         inputs,

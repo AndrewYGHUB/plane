@@ -1,3 +1,9 @@
+## DJS-8 · 签名前分范围证据绑定修订
+
+Plane #5 在扫描前因旧 same-SHA 检查拒绝已验证的分范围证据。新增独立 signing-amendment 回执：固定 PG/Web 原 9f93 证据、Live 46aa 实际协议/类型/构建及其可信原回执；新候选只允许精确 CI 文件变化，完整其他 Git 树及 Live 字节不变。原 CI-only 五文件和 Live 七文件模式不扩大。开发证据实时回读、完整变更 blob 和独立审查仍是构建资格，历史测试不会重标为新源码执行。
+
+签名前与包装/发布阶段复用同一严格 source/tree 绑定，记录三类真实验证来源。Plane canonical/staging 精确缺失分类单独限定三个仓库、40hex 或其固定 staging 后缀，认证、限流、TLS/网络错误均拒绝；原通用分类器入口不变。所有三组件扫描先完成再发布、固定根、TLS 与扫描策略保持。新增签名前绑定、模式路由、树漂移和标签正反控制及实际 Jenkins 编译；不重跑已通过的业务或 Live 测试。部署与 UI 验收尚未完成。
+
 ## 2026-10-15 DJS-8: locked Live authentication compatibility and scoped verification
 
 Plane build #4 failed at Live TypeScript compilation: locked Hocuspocus 2.15.2 supplies `connection`, while the attachment Page authentication hook and its cast fixture used `connectionConfig`. Use the actual typed payload and mutate its shared readOnly configuration. New real WebSocket/ClientConnection controls prove derived Page updates are rejected, ordinary Page updates are accepted, and denied authentication creates no document connection or credential-bearing logs.

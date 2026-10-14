@@ -26,8 +26,11 @@ if not isinstance(evidence, str) or not re.fullmatch(r"ev-[0-9a-f]{12}", evidenc
 if validation.get("development_evidence_reference_status") != "plane-readback-verified":
     raise SystemExit("release manifest development evidence status is invalid")
 source = (payload.get("source") or {}).get("commit")
-if validation.get("development_evidence_verified_source_sha") != source:
-    raise SystemExit("release manifest development evidence is not bound to the release source")
+import runpy
+try:
+    runpy.run_path(".jenkins/scripts/verify-ci-tree-equivalence.py")["validate_release_binding"](payload)
+except Exception:
+    raise SystemExit("release manifest scoped evidence/source binding rejected") from None
 if validation.get("development_evidence_verified_worktree_clean") is not True:
     raise SystemExit("release manifest development evidence was not produced from a clean worktree")
 if validation.get("development_evidence_verified_test_result") != "passed":
@@ -52,11 +55,12 @@ cp "$trusted" "$output_dir/cosign.pub"
 
 # shellcheck source=.jenkins/scripts/lib-oci-rootfs-scan.sh
 source .jenkins/scripts/lib-oci-rootfs-scan.sh
+source .jenkins/scripts/lib-harbor-exact-not-found.sh
 read_tag_digest() {
   tag="$1"; err="$(mktemp "$output_dir/digest-error.XXXXXX")"
   trap 'rm -f "$err"' RETURN
   if value="$(crane digest "$tag" 2>"$err")"; then printf '%s\n' "$value"; return 0; fi
-  if grep -qiE 'MANIFEST_UNKNOWN|NAME_UNKNOWN|NOT_FOUND: artifact .* not found' "$err"; then return 4; fi
+  if plane_signing_digest_error_is_exact_not_found "$err" "$tag"; then return 4; fi
   return 2
 }
 verify_fixed_signature() {
