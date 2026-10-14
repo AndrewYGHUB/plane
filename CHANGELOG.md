@@ -1,3 +1,9 @@
+## 2026-10-15 DJS-8: locked Live authentication compatibility and scoped verification
+
+Plane build #4 failed at Live TypeScript compilation: locked Hocuspocus 2.15.2 supplies `connection`, while the attachment Page authentication hook and its cast fixture used `connectionConfig`. Use the actual typed payload and mutate its shared readOnly configuration. New real WebSocket/ClientConnection controls prove derived Page updates are rejected, ordinary Page updates are accepted, and denied authentication creates no document connection or credential-bearing logs.
+
+Introduce a separate scoped-live-amendment receipt with the original five CI paths plus exactly the two Live auth source/control paths. The original CI-only whitelist remains unchanged. Preserve original PG/Web evidence and label the old Live3 result historical; bind new affected Live controls/types/full build and every changed blob to a clean candidate and independent review. Dependencies, Dockerfiles, schema, Web/PG trees, test entrypoint and trust root stay protected. No repeated original suite, unsigned deployment, or successful artifact claim for build #4.
+
 ## 2026-10-15 · DJS-8 首次仓库判定与 CI-only 证据模式
 
 - Plane#3 backend首次精确SHA标签读取失败；认证Registry404精确repository NOT_FOUND投影已确认，原crane stderr未保留，不冒称该原日志。新分类器只接受精确manifest URL/repo/full40SHA缺失，认证/限流/5xx/网络拒绝；返回0/4/2合同保留。

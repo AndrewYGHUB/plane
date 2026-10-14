@@ -30,9 +30,17 @@ expected = {
     "verified_test_command_sha256": "c0043f78de72ec04445aaf019e3797f84aecab4a223d154a8bf1c5d22004c29b",
     "verified_test_entrypoint_sha256": "b7af763704b4ea4cbb64884dcc42320d15a72c4b616d0e811759999979728fb0",
 }
-if payload.get("ci_tree_equivalence"):
+if payload.get("live_amendment_receipt"):
+    import runpy
+    receipt = payload["live_amendment_receipt"]
+    assert receipt["schema"] == "djs8-scoped-live-amendment-v1" and not payload.get("ci_tree_equivalence")
+    runpy.run_path(".jenkins/scripts/verify-ci-tree-equivalence.py")["verify"](receipt, source_sha)
+    expected["verified_source_sha"] = receipt["tested_source_sha"]
+    expected["live_amendment_receipt"] = receipt
+elif payload.get("ci_tree_equivalence"):
     import runpy
     receipt = payload["ci_tree_equivalence"]
+    assert receipt["schema"] == "djs8-ci-tree-equivalence-v1"
     runpy.run_path(".jenkins/scripts/verify-ci-tree-equivalence.py")["verify"](receipt, source_sha)
     expected["verified_source_sha"] = receipt["tested_source_sha"]
     expected["ci_tree_equivalence"] = receipt
@@ -423,6 +431,8 @@ payload = {
     "development_evidence_verified_test_entrypoint_sha256": dev_verified_test_entrypoint_sha256,
     "tested_source_sha": dev_verified_source_sha,
     "build_source_sha": os.environ["SOURCE_SHA"],
+    "component_validation_sources": {"pg_web": dev_verified_source_sha, "live_amendment": os.environ["SOURCE_SHA"], "old_live_suite": "historical only"} if json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("live_amendment_receipt") else None,
+    "live_amendment_receipt": json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("live_amendment_receipt"),
     "ci_tree_equivalence": json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("ci_tree_equivalence")},
   "jenkins": {"job": os.environ.get("JOB_NAME", "plane-ce-build"),
     "build_number": os.environ.get("BUILD_NUMBER", ""), "build_url": os.environ.get("BUILD_URL", "")},

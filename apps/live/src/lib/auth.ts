@@ -37,7 +37,7 @@ export const onAuthenticate = async ({
   context,
   token,
   documentName,
-  connectionConfig,
+  connection,
 }: OnAuthenticatePayloadWithContext) => {
   let cookie: string | undefined = undefined;
   let userId: string | undefined = undefined;
@@ -96,7 +96,7 @@ export const onAuthenticate = async ({
   }
 
   if (pageDetails.attachment_preview_read_only === true) {
-    connectionConfig.readOnly = true;
+    connection.readOnly = true;
   }
 
   return authenticatedUser;
