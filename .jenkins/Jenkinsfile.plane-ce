@@ -274,7 +274,9 @@ if not suite_matches:
     raise SystemExit("DJS-8 development evidence does not identify the required targeted test suite")
 if any("未提交改动" in (row.get("comment_html") or "") for row in suite_matches):
     raise SystemExit("DJS-8 development evidence was produced from a dirty worktree")
-source_sha = os.environ["SOURCE_SHA"]
+build_source_sha = os.environ["SOURCE_SHA"]
+source_sha = build_source_sha
+ci_receipt = None
 revision_pattern = re.compile(
     r"<td>代码</td><td><code>[^<]+</code>\\s*@\\s*<code>([0-9a-f]{9,40})</code>"
 )
@@ -287,7 +289,23 @@ if len(revisions) != 1:
     raise SystemExit("DJS-8 development evidence has no unambiguous code revision")
 evidence_revision = revisions.pop()
 if not source_sha.startswith(evidence_revision):
-    raise SystemExit("DJS-8 development evidence code revision does not match SOURCE_SHA")
+    import runpy
+    marker_ci = "DJS8-CI-TREE-EQUIVALENCE-V1:" + build_source_sha
+    candidates = [row for row in comments if marker_ci in (row.get("comment_html") or "")]
+    if len(candidates) != 1:
+        raise SystemExit("CI-only source needs exactly one independent reviewed receipt")
+    encoded = re.search(r"<pre>(.*?)</pre>", candidates[0]["comment_html"], re.S)
+    if not encoded:
+        raise SystemExit("CI-only receipt JSON is missing")
+    controls = runpy.run_path(".jenkins/scripts/verify-ci-tree-equivalence.py")
+    if candidates[0].get("created_by") != controls["TRUSTED_AUTHOR"] or candidates[0].get("actor") != controls["TRUSTED_AUTHOR"]:
+        raise SystemExit("CI-only receipt author is not the fixed trusted evidence publisher")
+    ci_receipt = json.loads(html.unescape(encoded.group(1)))
+    controls["validate_control_comment"](comments, ci_receipt, build_source_sha)
+    runpy.run_path(".jenkins/scripts/verify-ci-tree-equivalence.py")["verify"](ci_receipt, build_source_sha)
+    source_sha = ci_receipt["tested_source_sha"]
+    if evidence != ci_receipt["development_evidence"] or not source_sha.startswith(evidence_revision):
+        raise SystemExit("CI-only receipt does not match original passing suite")
 
 status = {
     "evidence_id": evidence,
@@ -302,6 +320,8 @@ status = {
     "verified_test_command_sha256": required_test_command_sha256,
     "verified_test_entrypoint_sha256": required_test_entrypoint_sha256,
 }
+if ci_receipt is not None:
+    status["ci_tree_equivalence"] = ci_receipt
 target = Path(".plane-release/development-evidence-status.json")
 temporary = target.with_suffix(".tmp")
 temporary.write_text(json.dumps(status, sort_keys=True) + "\\n", encoding="utf-8")
@@ -368,7 +388,14 @@ assert p['release_build_validation']['full_unit_test_suite_executed'] is False
 assert p['release_build_validation']['development_evidence_reference_status'] == 'plane-readback-verified'
 assert p['release_build_validation']['development_evidence_item'] == 'DJS-8'
 assert p['release_build_validation']['development_evidence_stage'] == 'dev'
-assert p['release_build_validation']['development_evidence_verified_source_sha'] == p['source']['commit']
+v = p['release_build_validation']
+if v.get('ci_tree_equivalence'):
+    import runpy
+    runpy.run_path('.jenkins/scripts/verify-ci-tree-equivalence.py')['verify'](v['ci_tree_equivalence'], p['source']['commit'])
+    assert v['development_evidence_verified_source_sha'] == v['tested_source_sha'] == v['ci_tree_equivalence']['tested_source_sha']
+    assert v['build_source_sha'] == p['source']['commit']
+else:
+    assert p['release_build_validation']['development_evidence_verified_source_sha'] == p['source']['commit']
 assert p['release_build_validation']['development_evidence_verified_worktree_clean'] is True
 assert p['release_build_validation']['development_evidence_verified_test_result'] == 'passed'
 assert p['release_build_validation']['development_evidence_verified_exit_code'] == 0

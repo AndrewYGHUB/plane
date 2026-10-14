@@ -1,3 +1,9 @@
+## 2026-10-15 · DJS-8 首次仓库判定与 CI-only 证据模式
+
+- Plane#3 backend首次精确SHA标签读取失败；认证Registry404精确repository NOT_FOUND投影已确认，原crane stderr未保留，不冒称该原日志。新分类器只接受精确manifest URL/repo/full40SHA缺失，认证/限流/5xx/网络拒绝；返回0/4/2合同保留。
+- 原业务、测试、Dockerfile、依赖和信任根完整Git树不变时，允许独立审查CI-only回执模式。仅5个逐文件枚举路径可不同，每个CI mode/blob/SHA256须绑定固定可信作者回执；新CI控制需实时回读实际rc0/命令/新SHA/日志hash。无回执或任何漂移均拒绝，不由新脚本自行授权。
+- 原PG62/Web5/Live3仍在9f93a7b4ebf12f73b2f42022081d6530a1fac02c执行，ev-a57cc79a0483保留。发布分别记录tested_source_sha/build_source_sha/tree_equivalence，full_unit_test_suite_executed=False。未重跑原suite，无新构建/制品/部署结论。
+
 # Changelog
 
 ## 2026-10-14 · DJS-8 Jenkins Groovy escaping
