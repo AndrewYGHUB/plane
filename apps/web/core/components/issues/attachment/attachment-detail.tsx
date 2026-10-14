@@ -6,8 +6,8 @@
 
 import { useState } from "react";
 import { observer } from "mobx-react";
-import Link from "next/link";
 import { AlertCircle } from "lucide-react";
+import { useTranslation } from "@plane/i18n";
 import { CloseIcon } from "@plane/propel/icons";
 // ui
 import { Tooltip } from "@plane/propel/tooltip";
@@ -15,7 +15,6 @@ import {
   convertBytesToSize,
   getFileExtension,
   getFileName,
-  getFileURL,
   renderFormattedDate,
   truncateText,
 } from "@plane/utils";
@@ -31,10 +30,14 @@ import { useMember } from "@/hooks/store/use-member";
 import { usePlatformOS } from "@/hooks/use-platform-os";
 // types
 import type { TAttachmentHelpers } from "../issue-detail-widgets/attachments/helper";
+import { useIssueAttachmentPreview } from "./use-issue-attachment-preview";
 
 type TAttachmentOperationsRemoveModal = Exclude<TAttachmentHelpers, "create">;
 
 type TIssueAttachmentsDetail = {
+  workspaceSlug: string;
+  projectId: string;
+  issueId: string;
   attachmentId: string;
   attachmentHelpers: TAttachmentOperationsRemoveModal;
   disabled?: boolean;
@@ -42,7 +45,8 @@ type TIssueAttachmentsDetail = {
 
 export const IssueAttachmentsDetail = observer(function IssueAttachmentsDetail(props: TIssueAttachmentsDetail) {
   // props
-  const { attachmentId, attachmentHelpers, disabled } = props;
+  const { workspaceSlug, projectId, issueId, attachmentId, attachmentHelpers, disabled } = props;
+  const { t } = useTranslation();
   // store hooks
   const { getUserDetails } = useMember();
   const {
@@ -53,11 +57,11 @@ export const IssueAttachmentsDetail = observer(function IssueAttachmentsDetail(p
   // derived values
   const attachment = attachmentId ? getAttachmentById(attachmentId) : undefined;
   const fileName = getFileName(attachment?.attributes.name ?? "");
-  const fileExtension = getFileExtension(attachment?.asset_url ?? "");
+  const fileExtension = getFileExtension(attachment?.attributes.name ?? "");
   const fileIcon = getFileIcon(fileExtension, 28);
-  const fileURL = getFileURL(attachment?.asset_url ?? "");
   // hooks
   const { isMobile } = usePlatformOS();
+  const { openAttachmentPreview } = useIssueAttachmentPreview({ workspaceSlug, projectId, issueId });
 
   if (!attachment) return <></>;
 
@@ -72,7 +76,12 @@ export const IssueAttachmentsDetail = observer(function IssueAttachmentsDetail(p
         />
       )}
       <div className="flex h-[60px] items-center justify-between gap-1 rounded-md border-[2px] border-subtle bg-surface-1 px-4 py-2 text-13">
-        <Link href={fileURL ?? ""} target="_blank" rel="noopener noreferrer">
+        <button
+          type="button"
+          className="text-left"
+          aria-label={t("attachment.open_preview", { name: fileName })}
+          onClick={() => void openAttachmentPreview(attachmentId)}
+        >
           <div className="flex items-center gap-3">
             <div className="h-7 w-7">{fileIcon}</div>
             <div className="flex flex-col gap-1">
@@ -98,7 +107,7 @@ export const IssueAttachmentsDetail = observer(function IssueAttachmentsDetail(p
               </div>
             </div>
           </div>
-        </Link>
+        </button>
 
         {!disabled && (
           <button type="button" onClick={() => setIsDeleteIssueAttachmentModalOpen(true)}>

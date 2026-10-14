@@ -1,4 +1,10 @@
-FROM python:3.12.10-alpine
+ARG API_BASE_IMAGE=harbor.yunxilu.com/cloudhandstack/mirror/plane-python:DJS8_BASE_REQUIRED@sha256:0000000000000000000000000000000000000000000000000000000000000000
+FROM ${API_BASE_IMAGE}
+
+ARG SOURCE_SHA=unknown
+LABEL org.opencontainers.image.source="https://github.com/AndrewYGHUB/plane" \
+      org.opencontainers.image.revision="${SOURCE_SHA}" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 
 # set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1

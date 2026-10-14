@@ -72,3 +72,8 @@ from .user import UserEndpoint
 from .invite import WorkspaceInvitationsViewset
 
 from .sticky import StickyViewSet
+
+from .issue_attachment_preview import (
+    IssueAttachmentPreviewAPIEndpoint,
+    IssueAttachmentPreviewPageImportAPIEndpoint,
+)

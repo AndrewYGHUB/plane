@@ -5,14 +5,24 @@
  */
 
 // plane imports
-import type { IncomingHttpHeaders } from "http";
+import type { onAuthenticatePayload } from "@hocuspocus/server";
 import type { TUserDetails } from "@plane/editor";
+import type { TPage } from "@plane/types";
 import { logger } from "@plane/logger";
 import { AppError } from "@/lib/errors";
 // services
 import { UserService } from "@/services/user.service";
+import { getPageService } from "@/services/page/handler";
 // types
 import type { HocusPocusServerContext, TDocumentTypes } from "@/types";
+
+type OnAuthenticatePayloadWithContext = Omit<onAuthenticatePayload, "context"> & {
+  context: HocusPocusServerContext;
+};
+
+type AttachmentPreviewPageDetails = TPage & {
+  attachment_preview_read_only?: boolean;
+};
 
 /**
  * Authenticate the user
@@ -26,12 +36,9 @@ export const onAuthenticate = async ({
   requestParameters,
   context,
   token,
-}: {
-  requestHeaders: IncomingHttpHeaders;
-  context: HocusPocusServerContext;
-  requestParameters: URLSearchParams;
-  token: string;
-}) => {
+  documentName,
+  connectionConfig,
+}: OnAuthenticatePayloadWithContext) => {
   let cookie: string | undefined = undefined;
   let userId: string | undefined = undefined;
 
@@ -66,10 +73,33 @@ export const onAuthenticate = async ({
   context.userId = userId;
   context.workspaceSlug = requestParameters.get("workspaceSlug");
 
-  return await handleAuthentication({
+  const authenticatedUser = await handleAuthentication({
     cookie: context.cookie,
     userId: context.userId,
   });
+
+  // Hocuspocus authentication must authorize the requested document, not just
+  // the user identity. The API Page detail endpoint is the policy authority;
+  // it also enforces attachment-derived Page visibility for restricted Guests.
+  const pageService = getPageService(context.documentType, context);
+  let pageDetails: AttachmentPreviewPageDetails;
+  try {
+    pageDetails = (await pageService.fetchDetails(documentName)) as AttachmentPreviewPageDetails;
+  } catch (error) {
+    // AppError deliberately drops Axios config/headers so a denied Page lookup
+    // can never place the session cookie in Live logs.
+    const appError = new AppError(error, {
+      context: { operation: "authorizeDocument", documentName },
+    });
+    logger.error("Document authorization failed", appError);
+    throw appError;
+  }
+
+  if (pageDetails.attachment_preview_read_only === true) {
+    connectionConfig.readOnly = true;
+  }
+
+  return authenticatedUser;
 };
 
 export const handleAuthentication = async ({ cookie, userId }: { cookie: string; userId: string }) => {

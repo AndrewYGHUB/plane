@@ -15,6 +15,7 @@ from django.db.models import (
     Q,
     Value,
     UUIDField,
+    CharField,
     Count,
     Case,
     When,
@@ -23,7 +24,7 @@ from django.db.models import (
 from django.http import StreamingHttpResponse
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.fields import ArrayField
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Cast, Coalesce
 
 # Third party imports
 from rest_framework import status
@@ -39,8 +40,10 @@ from plane.app.serializers import (
 from plane.db.models import (
     Page,
     PageLog,
+    FileAsset,
     UserFavorite,
     ProjectMember,
+    WorkspaceMember,
     ProjectPage,
     Project,
     UserRecentVisit,
@@ -54,6 +57,10 @@ from plane.bgtasks.page_version_task import track_page_version
 from plane.bgtasks.recent_visited_task import recent_visited_task
 from plane.bgtasks.copy_s3_object import copy_s3_objects_of_description_and_assets
 from plane.app.permissions import ProjectPagePermission
+from plane.utils.attachment_preview import (
+    PREVIEW_PAGE_EXTERNAL_SOURCE,
+    can_read_project_page,
+)
 
 
 def unarchive_archive_page_and_descendants(page_id, archived_at):
@@ -77,6 +84,57 @@ class PageViewSet(BaseViewSet):
     model = Page
     permission_classes = [ProjectPagePermission]
     search_fields = ["name"]
+
+    @staticmethod
+    def _is_restricted_guest(request, slug, project):
+        return (
+            ProjectMember.objects.filter(
+                workspace__slug=slug,
+                project_id=project.id,
+                member=request.user,
+                role=ROLE.GUEST.value,
+                is_active=True,
+            ).exists()
+            and not WorkspaceMember.objects.filter(
+                workspace__slug=slug,
+                member=request.user,
+                role=ROLE.ADMIN.value,
+                is_active=True,
+            ).exists()
+            and not project.guest_view_all_features
+        )
+
+    @staticmethod
+    def _filter_restricted_guest_pages(queryset, request, project_id):
+        readable_preview_source = (
+            FileAsset.all_objects.annotate(
+                asset_id_text=Cast("id", output_field=CharField())
+            )
+            .filter(
+                asset_id_text=OuterRef("external_id"),
+                workspace_id=OuterRef("workspace_id"),
+                project_id=project_id,
+                entity_type=FileAsset.EntityTypeContext.ISSUE_ATTACHMENT,
+                deleted_at__isnull=True,
+                is_deleted=False,
+                is_archived=False,
+                is_uploaded=True,
+                issue__created_by=request.user,
+                issue__deleted_at__isnull=True,
+                issue__archived_at__isnull=True,
+                project__deleted_at__isnull=True,
+                project__archived_at__isnull=True,
+            )
+        )
+        return queryset.annotate(
+            attachment_preview_source_readable=Exists(readable_preview_source)
+        ).filter(
+            Q(owned_by=request.user)
+            | Q(
+                external_source=PREVIEW_PAGE_EXTERNAL_SOURCE,
+                attachment_preview_source_readable=True,
+            )
+        )
 
     def get_queryset(self):
         subquery = UserFavorite.objects.filter(
@@ -201,7 +259,6 @@ class PageViewSet(BaseViewSet):
 
     def retrieve(self, request, slug, project_id, page_id=None):
         page = self.get_queryset().filter(pk=page_id).first()
-        project = Project.objects.get(pk=project_id)
         track_visit = request.query_params.get("track_visit", "true").lower() == "true"
 
         """
@@ -209,16 +266,8 @@ class PageViewSet(BaseViewSet):
         the requesting user then dont show the page
         """
 
-        if (
-            ProjectMember.objects.filter(
-                workspace__slug=slug,
-                project_id=project_id,
-                member=request.user,
-                role=5,
-                is_active=True,
-            ).exists()
-            and not project.guest_view_all_features
-            and not page.owned_by == request.user
+        if page is not None and not can_read_project_page(
+            request.user, page, project_id
         ):
             return Response(
                 {"error": "You are not allowed to view this page"},
@@ -291,17 +340,12 @@ class PageViewSet(BaseViewSet):
     def list(self, request, slug, project_id):
         queryset = self.get_queryset()
         project = Project.objects.get(pk=project_id)
-        if (
-            ProjectMember.objects.filter(
-                workspace__slug=slug,
-                project_id=project_id,
-                member=request.user,
-                role=5,
-                is_active=True,
-            ).exists()
-            and not project.guest_view_all_features
-        ):
-            queryset = queryset.filter(owned_by=request.user)
+        if self._is_restricted_guest(request, slug, project):
+            queryset = self._filter_restricted_guest_pages(
+                queryset,
+                request,
+                project_id,
+            )
         pages = PageSerializer(queryset, many=True).data
         return Response(pages, status=status.HTTP_200_OK)
 
@@ -438,17 +482,12 @@ class PageViewSet(BaseViewSet):
         )
 
         project = Project.objects.get(pk=project_id)
-        if (
-            ProjectMember.objects.filter(
-                workspace__slug=slug,
-                project_id=project_id,
-                member=request.user,
-                role=ROLE.GUEST.value,
-                is_active=True,
-            ).exists()
-            and not project.guest_view_all_features
-        ):
-            queryset = queryset.filter(owned_by=request.user)
+        if self._is_restricted_guest(request, slug, project):
+            queryset = self._filter_restricted_guest_pages(
+                queryset,
+                request,
+                project_id,
+            )
 
         stats = queryset.aggregate(
             public_pages=Count(

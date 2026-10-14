@@ -7,6 +7,7 @@ import uuid
 
 # Django imports
 from django.conf import settings
+from django.db import transaction
 from django.http import HttpResponseRedirect
 from django.utils import timezone
 
@@ -16,6 +17,9 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from plane.bgtasks.storage_metadata_task import get_asset_object_metadata
+from plane.app.serializers.asset import (
+    merge_attributes_preserving_controlled_preview,
+)
 from plane.db.models import DeployBoard, FileAsset
 from plane.settings.storage import S3Storage
 from plane.utils.path_validator import sanitize_filename
@@ -163,17 +167,47 @@ class EntityAssetEndpoint(BaseAPIView):
 
         # get the asset id — scope to project to prevent cross-project IDOR
         asset = FileAsset.objects.get(id=pk, workspace=deploy_board.workspace, project_id=deploy_board.project_id)
-        # get the storage metadata
-        asset.is_uploaded = True
-        # get the storage metadata
-        if not asset.storage_metadata:
-            get_asset_object_metadata.delay(str(asset.id))
 
-        # update the attributes
-        asset.attributes = request.data.get("attributes", asset.attributes)
-        # save the asset
-        asset.save(update_fields=["attributes", "is_uploaded"])
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        def update_asset(locked_asset):
+            requested_attributes = request.data.get("attributes", locked_asset.attributes)
+            attempted_preview_mutation = False
+            if locked_asset.entity_type == FileAsset.EntityTypeContext.ISSUE_ATTACHMENT:
+                requested_attributes, attempted_preview_mutation = (
+                    merge_attributes_preserving_controlled_preview(
+                        locked_asset.attributes,
+                        requested_attributes,
+                    )
+                )
+            if attempted_preview_mutation:
+                return Response(
+                    {
+                        "error": "Attachment preview mappings must use the controlled preview endpoint.",
+                        "code": "preview_mapping_requires_admin_endpoint",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Do not mutate upload state or enqueue metadata work until a
+            # controlled preview mutation has been rejected.
+            locked_asset.is_uploaded = True
+            if not locked_asset.storage_metadata:
+                get_asset_object_metadata.delay(str(locked_asset.id))
+
+            # update the attributes
+            locked_asset.attributes = requested_attributes
+            # save the asset
+            locked_asset.save(update_fields=["attributes", "is_uploaded"])
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        if asset.entity_type == FileAsset.EntityTypeContext.ISSUE_ATTACHMENT:
+            with transaction.atomic():
+                asset = FileAsset.objects.select_for_update().get(
+                    id=pk,
+                    workspace=deploy_board.workspace,
+                    project_id=deploy_board.project_id,
+                )
+                return update_asset(asset)
+        return update_asset(asset)
 
     def delete(self, request, anchor, pk):
         # Get the deploy board

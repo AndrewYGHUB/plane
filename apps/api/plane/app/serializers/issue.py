@@ -13,6 +13,10 @@ from rest_framework import serializers
 
 # Module imports
 from .base import BaseSerializer, DynamicBaseSerializer
+from .asset import (
+    has_controlled_preview_attributes,
+    merge_attributes_preserving_controlled_preview,
+)
 from .user import UserLiteSerializer
 from .state import StateLiteSerializer
 from .project import ProjectLiteSerializer
@@ -616,6 +620,20 @@ class IssueLinkLiteSerializer(BaseSerializer):
 class IssueAttachmentSerializer(BaseSerializer):
     asset_url = serializers.CharField(read_only=True)
 
+    def validate_attributes(self, attributes):
+        if self.instance is not None:
+            attributes, attempted_mutation = merge_attributes_preserving_controlled_preview(
+                self.instance.attributes,
+                attributes,
+            )
+        else:
+            attempted_mutation = has_controlled_preview_attributes(attributes)
+        if attempted_mutation:
+            raise serializers.ValidationError(
+                "Attachment preview mappings must use the controlled preview endpoint."
+            )
+        return attributes
+
     class Meta:
         model = FileAsset
         fields = "__all__"
@@ -628,6 +646,13 @@ class IssueAttachmentSerializer(BaseSerializer):
             "project",
             "issue",
         ]
+
+
+class IssueAttachmentPreviewSerializer(serializers.Serializer):
+    """Validate a controlled attachment-to-Plane-Page preview mapping."""
+
+    preview_kind = serializers.ChoiceField(choices=["plane_page"])
+    preview_page_id = serializers.UUIDField()
 
 
 class IssueAttachmentLiteSerializer(DynamicBaseSerializer):

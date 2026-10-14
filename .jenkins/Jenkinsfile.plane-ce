@@ -1,0 +1,411 @@
+// DJS-8: build the public Plane fork's changed backend/frontend/live images.
+// This job never deploys. Git/Flux promotion consumes release.json separately.
+@Library('cloudhandstack-agent-image') _
+pipeline {
+  agent {
+    kubernetes {
+      cloud 'kubernetes'
+      namespace 'jenkins-buildkit'
+      serviceAccount 'jenkins-buildkit-agent'
+      defaultContainer 'builder'
+      yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: jenkins-buildkit-agent
+  automountServiceAccountToken: false
+  hostNetwork: false
+  hostPID: false
+  hostIPC: false
+  dnsConfig:
+    options:
+      - { name: ndots, value: "1" }
+  securityContext:
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+  imagePullSecrets:
+    - name: harbor-pull
+  containers:
+    - name: jnlp
+      image: ${jenkinsAgentImage()}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        privileged: false
+        allowPrivilegeEscalation: false
+        capabilities: { drop: ['ALL'] }
+        seccompProfile: { type: RuntimeDefault }
+        appArmorProfile: { type: Unconfined }
+      resources:
+        requests: { cpu: '50m', memory: '128Mi', ephemeral-storage: '128Mi' }
+        limits: { cpu: '250m', memory: '512Mi', ephemeral-storage: '512Mi' }
+    - name: builder
+      image: ${jenkinsAgentImage()}
+      command: ['sleep']
+      args: ['99d']
+      tty: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        privileged: false
+        allowPrivilegeEscalation: false
+        capabilities: { drop: ['ALL'] }
+        seccompProfile: { type: RuntimeDefault }
+        appArmorProfile: { type: Unconfined }
+      resources:
+        requests: { cpu: '100m', memory: '2Gi', ephemeral-storage: '1Gi' }
+        limits: { cpu: '1', memory: '3584Mi', ephemeral-storage: '9728Mi' }
+      volumeMounts:
+        - { name: harbor-ci, mountPath: /var/run/secrets/cloudhandstack/harbor-ci, readOnly: true }
+        - { name: cosign-key, mountPath: /var/run/secrets/cloudhandstack/cosign, readOnly: true }
+        - { name: buildkit-socket, mountPath: /run/user/1000/buildkit }
+        - { name: trivy-cache, mountPath: /home/jenkins/.cache/trivy }
+    - name: buildkitd
+      image: harbor.yunxilu.com/cloudhandstack/mirror/buildkit:v0.33.0-rootless@sha256:9391745530c1812ca16a14554813268c3472953f12a060494efc86b9bc4b0e53
+      args:
+        - '--addr=unix:///run/user/1000/buildkit/buildkitd.sock'
+        - '--oci-worker-no-process-sandbox'
+        - '--oci-worker-snapshotter=native'
+        - '--oci-worker-gc'
+        - '--oci-worker-gc-keepstorage=20480,10240,35840'
+        - '--oci-max-parallelism=1'
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        privileged: false
+        allowPrivilegeEscalation: true
+        capabilities:
+          drop: ['ALL']
+          add: ['SETUID', 'SETGID']
+        seccompProfile: { type: Unconfined }
+        appArmorProfile: { type: Unconfined }
+        readOnlyRootFilesystem: false
+      startupProbe:
+        exec:
+          command: ['buildctl', '--addr', 'unix:///run/user/1000/buildkit/buildkitd.sock', 'debug', 'workers']
+        periodSeconds: 2
+        timeoutSeconds: 5
+        failureThreshold: 30
+      readinessProbe:
+        exec:
+          command: ['buildctl', '--addr', 'unix:///run/user/1000/buildkit/buildkitd.sock', 'debug', 'workers']
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3
+      resources:
+        requests: { cpu: '100m', memory: '1Gi', ephemeral-storage: '2Gi' }
+        limits: { cpu: '2750m', memory: '8Gi', ephemeral-storage: '20Gi' }
+      volumeMounts:
+        - { name: buildkit-socket, mountPath: /run/user/1000/buildkit }
+        - { name: buildkit-state, mountPath: /home/user/.local/share/buildkit }
+  volumes:
+    - { name: harbor-ci, secret: { secretName: harbor-ci, defaultMode: 0440 } }
+    - { name: cosign-key, secret: { secretName: cloudhandstack-cosign-key, defaultMode: 0440 } }
+    - { name: buildkit-socket, emptyDir: { sizeLimit: '16Mi' } }
+    - { name: buildkit-state, persistentVolumeClaim: { claimName: jenkins-cache-buildkit-build } }
+    - { name: trivy-cache, persistentVolumeClaim: { claimName: jenkins-cache-trivy } }
+"""
+    }
+  }
+
+  parameters {
+    string(name: 'SOURCE_SHA', defaultValue: '', description: 'AndrewYGHUB/plane main 的完整 40 位 SHA')
+    string(name: 'DEV_TEST_EVIDENCE', defaultValue: '', description: '必填：开发测试 Plane 证据 ID（ev- 加 12 位小写十六进制）')
+  }
+
+  options {
+    skipDefaultCheckout(true)
+    disableConcurrentBuilds()
+    timeout(time: 180, unit: 'MINUTES')
+    buildDiscarder(logRotator(numToKeepStr: '10'))
+  }
+
+  environment {
+    BUILDKIT_HOST = 'unix:///run/user/1000/buildkit/buildkitd.sock'
+    DOCKER_CONFIG = "${WORKSPACE}@tmp/plane-ce-docker"
+    HARBOR_USERNAME_FILE = '/var/run/secrets/cloudhandstack/harbor-ci/username'
+    HARBOR_PASSWORD_FILE = '/var/run/secrets/cloudhandstack/harbor-ci/password'
+    ATTEST_COSIGN_KEY = '/var/run/secrets/cloudhandstack/cosign/cosign.key'
+    GOMAXPROCS = '1'
+  }
+
+  stages {
+    stage('Validate inputs') {
+      steps {
+        sh '''
+          set -eu
+          python3 - "$DEV_TEST_EVIDENCE" <<'PY'
+import re, sys
+if not re.fullmatch(r"ev-[0-9a-f]{12}", sys.argv[1]):
+    raise SystemExit("DEV_TEST_EVIDENCE must be one Plane evidence ID")
+PY
+        '''
+      }
+    }
+
+    stage('Exact public source') {
+      steps {
+        deleteDir()
+        checkout scm
+        sh '''
+          set -eu
+          .jenkins/scripts/verify-exact-source.sh
+        '''
+      }
+    }
+
+    stage('CI contract') {
+      steps {
+        sh '''
+          set -eu
+          python3 .jenkins/scripts/verify-ci-contract.py
+          .jenkins/scripts/build-plane-images.sh --self-test-evidence
+          .jenkins/scripts/verify-exact-source.sh --self-test
+          .jenkins/scripts/prepare-registry-auth.sh --self-test
+        '''
+      }
+    }
+
+    stage('Plane development evidence readback') {
+      steps {
+        withCredentials([string(credentialsId: 'plane-api-token', variable: 'PLANE_API_TOKEN')]) {
+          sh '''
+            set -eu
+            mkdir -p .plane-release
+            rm -f .plane-release/development-evidence-status.json
+            python3 - <<'PY'
+import hashlib
+import html
+import json
+import os
+from pathlib import Path
+import re
+import urllib.error
+import urllib.parse
+import urllib.request
+
+base = "https://plane.yunxilu.com"
+workspace = "cloudhandstack"
+item_code = "DJS-8"
+evidence = os.environ["DEV_TEST_EVIDENCE"]
+token = os.environ.get("PLANE_API_TOKEN", "")
+if not token:
+    raise SystemExit("Plane evidence readback credential is unavailable")
+
+def get_json(path):
+    request = urllib.request.Request(base + path, method="GET")
+    request.add_header("X-API-Key", token)
+    request.add_header("Accept", "application/json")
+    try:
+        with urllib.request.urlopen(request, timeout=40) as response:
+            if response.status != 200:
+                raise SystemExit(f"Plane evidence readback failed with HTTP {response.status}")
+            return json.load(response)
+    except urllib.error.HTTPError as exc:
+        raise SystemExit(f"Plane evidence readback failed with HTTP {exc.code}") from None
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"Plane evidence readback failed: {type(exc).__name__}") from None
+
+issue = get_json(f"/api/v1/workspaces/{workspace}/issues/{item_code}/")
+if not isinstance(issue, dict) or not issue.get("id") or not issue.get("project"):
+    raise SystemExit("Plane evidence readback returned an invalid DJS-8 item")
+
+comment_path = (
+    f"/api/v1/workspaces/{workspace}/projects/{issue['project']}"
+    f"/issues/{issue['id']}/comments/"
+)
+comments = []
+cursor = None
+for _ in range(50):
+    query = {"per_page": "100"}
+    if cursor:
+        query["cursor"] = cursor
+    page = get_json(comment_path + "?" + urllib.parse.urlencode(query))
+    if isinstance(page, list):
+        comments.extend(page)
+        break
+    if not isinstance(page, dict) or not isinstance(page.get("results", []), list):
+        raise SystemExit("Plane evidence comments response is invalid")
+    comments.extend(page.get("results", []))
+    if not page.get("next_page_results"):
+        break
+    cursor = page.get("next_cursor")
+    if not cursor:
+        raise SystemExit("Plane evidence comments pagination is invalid")
+else:
+    raise SystemExit("Plane evidence comments exceeded the pagination limit")
+
+marker = f"〔PLANETEST1 测试证据 · stage=dev · {evidence}〕"
+required_test_title = "DJS-8 Plane CE release target contracts"
+required_test_command = ".jenkins/scripts/test-djs8-attachment-preview.sh"
+required_test_suite = "djs8-plane-release-contracts-v2"
+required_test_command_sha256 = hashlib.sha256(required_test_command.encode()).hexdigest()
+required_test_entrypoint_sha256 = "b7af763704b4ea4cbb64884dcc42320d15a72c4b616d0e811759999979728fb0"
+actual_test_entrypoint_sha256 = hashlib.sha256(
+    Path(required_test_command).read_bytes()
+).hexdigest()
+if actual_test_entrypoint_sha256 != required_test_entrypoint_sha256:
+    raise SystemExit("DJS-8 required test entrypoint content drifted")
+if any(not isinstance(row, dict) for row in comments):
+    raise SystemExit("Plane evidence comments contain an invalid row")
+matches = [
+    row for row in comments
+    if marker in (row.get("comment_html") or "")
+    and "④⑤开发中" in (row.get("comment_html") or "")
+]
+if not matches:
+    raise SystemExit("DEV_TEST_EVIDENCE is absent from a DJS-8 PLANETEST1 stage=dev/④⑤ comment")
+successful_matches = [
+    row for row in matches
+    if "<td>结论</td><td>✅ 通过</td>" in (row.get("comment_html") or "")
+    and "<td>退出码</td><td><code>0</code></td>" in (row.get("comment_html") or "")
+]
+if not successful_matches:
+    raise SystemExit("DJS-8 development evidence does not prove a passing rc=0 test")
+suite_matches = [
+    row for row in successful_matches
+    if f"<td>测的是什么</td><td>{html.escape(required_test_title)}</td>" in (row.get("comment_html") or "")
+    and f"<td>命令</td><td><code>{html.escape(required_test_command)}</code></td>" in (row.get("comment_html") or "")
+]
+if not suite_matches:
+    raise SystemExit("DJS-8 development evidence does not identify the required targeted test suite")
+if any("未提交改动" in (row.get("comment_html") or "") for row in suite_matches):
+    raise SystemExit("DJS-8 development evidence was produced from a dirty worktree")
+source_sha = os.environ["SOURCE_SHA"]
+revision_pattern = re.compile(
+    r"<td>代码</td><td><code>[^<]+</code>\s*@\s*<code>([0-9a-f]{9,40})</code>"
+)
+revisions = {
+    match.group(1)
+    for row in suite_matches
+    for match in revision_pattern.finditer(row.get("comment_html") or "")
+}
+if len(revisions) != 1:
+    raise SystemExit("DJS-8 development evidence has no unambiguous code revision")
+evidence_revision = revisions.pop()
+if not source_sha.startswith(evidence_revision):
+    raise SystemExit("DJS-8 development evidence code revision does not match SOURCE_SHA")
+
+status = {
+    "evidence_id": evidence,
+    "item": item_code,
+    "stage": "dev",
+    "status": "plane-readback-verified",
+    "verified_source_sha": source_sha,
+    "verified_worktree_clean": True,
+    "verified_test_result": "passed",
+    "verified_exit_code": 0,
+    "verified_test_suite": required_test_suite,
+    "verified_test_command_sha256": required_test_command_sha256,
+    "verified_test_entrypoint_sha256": required_test_entrypoint_sha256,
+}
+target = Path(".plane-release/development-evidence-status.json")
+temporary = target.with_suffix(".tmp")
+temporary.write_text(json.dumps(status, sort_keys=True) + "\n", encoding="utf-8")
+temporary.replace(target)
+print("DJS-8 PLANETEST1 development evidence readback: PASS")
+PY
+          '''
+        }
+      }
+    }
+
+    stage('Registry helper') {
+      steps {
+        sh '''
+          set -eu
+          export PATH="$WORKSPACE/.jenkins/bin:$PATH"
+          .jenkins/scripts/prepare-registry-auth.sh
+        '''
+      }
+    }
+
+    stage('Pre-store public bases') {
+      steps {
+        sh '''
+          set -eu
+          export PATH="$WORKSPACE/.jenkins/bin:$PATH"
+          .jenkins/scripts/prestore-base-images.sh .plane-release
+        '''
+      }
+    }
+
+    stage('Build immutable images') {
+      steps {
+        sh '''
+          set -eu
+          export PATH="$WORKSPACE/.jenkins/bin:$PATH"
+          .jenkins/scripts/build-plane-images.sh .plane-release
+        '''
+      }
+    }
+
+    stage('Sign and SBOM') {
+      steps {
+        sh '''
+          set -eu
+          export PATH="$WORKSPACE/.jenkins/bin:$PATH"
+          .jenkins/scripts/sign-and-sbom.sh .plane-release
+        '''
+      }
+    }
+
+    stage('Release manifest') {
+      steps {
+        sh '''
+          set -eu
+          python3 - <<'PY'
+import json
+from pathlib import Path
+
+p = json.loads(Path('.plane-release/release.json').read_text())
+assert set(p['self_built_components']) == {'backend', 'frontend', 'live'}
+assert set(p['retained_upstream_components']) == {'admin', 'space'}
+assert p['release_build_validation']['full_unit_test_suite_executed'] is False
+assert p['release_build_validation']['development_evidence_reference_status'] == 'plane-readback-verified'
+assert p['release_build_validation']['development_evidence_item'] == 'DJS-8'
+assert p['release_build_validation']['development_evidence_stage'] == 'dev'
+assert p['release_build_validation']['development_evidence_verified_source_sha'] == p['source']['commit']
+assert p['release_build_validation']['development_evidence_verified_worktree_clean'] is True
+assert p['release_build_validation']['development_evidence_verified_test_result'] == 'passed'
+assert p['release_build_validation']['development_evidence_verified_exit_code'] == 0
+assert p['release_build_validation']['development_evidence_verified_test_suite'] == 'djs8-plane-release-contracts-v2'
+assert p['release_build_validation']['development_evidence_verified_test_command_sha256'] == 'c0043f78de72ec04445aaf019e3797f84aecab4a223d154a8bf1c5d22004c29b'
+assert p['release_build_validation']['development_evidence_verified_test_entrypoint_sha256'] == 'b7af763704b4ea4cbb64884dcc42320d15a72c4b616d0e811759999979728fb0'
+assert __import__('re').fullmatch(
+    r'ev-[0-9a-f]{12}',
+    p['release_build_validation']['development_evidence_reference'],
+)
+assert p['source']['upstream_base']['commit'] == '5662b761062b0b2f9d42a6578b55481b5b069792'
+assert p['source']['upstream_base']['relationship'] == 'ancestor-verified-by-exact-source-stage'
+assert p['trust_root']['sha256'] == 'df0c4d475fb1f8d7a270a6909b0f42403d58bdf24840f8c715cda60d9272e43d'
+assert p['trust_root']['verification_policy'] == 'fixed-root-only'
+for value in p['self_built_components'].values():
+    assert value['supply_chain']['signature_verified'] is True
+    assert value['supply_chain']['prepush_secret_findings'] == 0
+    assert value['supply_chain']['prepush_fixed_critical_findings'] == 0
+    assert value['supply_chain']['prepush_rootfs_policy_findings'] == 0
+for value in p['retained_upstream_components'].values():
+    assert value['build_origin'] == 'upstream-v1.4.1-not-fork-built'
+    assert value['harbor_pinned'].startswith('harbor.yunxilu.com/cloudhandstack/mirror/')
+print('release.json scope/source/digest/signature/SBOM contract: PASS')
+PY
+        '''
+      }
+    }
+  }
+
+  post {
+    always {
+      archiveArtifacts(
+        artifacts: '.plane-release/*.json,.plane-release/*.sha256,.plane-release/cosign.pub,.plane-release/base-images.env',
+        allowEmptyArchive: true,
+        fingerprint: true
+      )
+      sh 'rm -rf "$DOCKER_CONFIG"'
+    }
+  }
+}

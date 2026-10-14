@@ -144,6 +144,9 @@ export const IssueAttachmentItemList = observer(function IssueAttachmentItemList
             {issueAttachments?.map((attachmentId) => (
               <IssueAttachmentsListItem
                 key={attachmentId}
+                workspaceSlug={workspaceSlug}
+                projectId={projectId}
+                issueId={issueId}
                 attachmentId={attachmentId}
                 disabled={disabled}
                 issueServiceType={issueServiceType}

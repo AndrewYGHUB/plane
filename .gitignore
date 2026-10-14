@@ -111,6 +111,10 @@ build/
 temp/
 scripts/
 !packages/i18n/scripts/
+!.jenkins/scripts/
+!.jenkins/scripts/**
+.jenkins/scripts/**/__pycache__/
+.jenkins/scripts/**/*.py[cod]
 
 # i18n auto-generated types (regenerated on every build)
 packages/i18n/src/types/keys.generated.ts

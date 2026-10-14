@@ -20,10 +20,12 @@ from plane.db.models import (
     Project,
     PageVersion,
 )
+from plane.utils.attachment_preview import PREVIEW_PAGE_EXTERNAL_SOURCE
 
 
 class PageSerializer(BaseSerializer):
     is_favorite = serializers.BooleanField(read_only=True)
+    attachment_preview_read_only = serializers.SerializerMethodField()
     labels = serializers.ListField(
         child=serializers.PrimaryKeyRelatedField(queryset=Label.objects.all()),
         write_only=True,
@@ -45,6 +47,7 @@ class PageSerializer(BaseSerializer):
             "parent",
             "is_favorite",
             "is_locked",
+            "attachment_preview_read_only",
             "archived_at",
             "workspace",
             "created_at",
@@ -57,6 +60,11 @@ class PageSerializer(BaseSerializer):
             "project_ids",
         ]
         read_only_fields = ["workspace", "owned_by"]
+
+    def get_attachment_preview_read_only(self, obj):
+        """Expose the immutable-projection contract without leaking source IDs."""
+
+        return bool(obj.external_source == PREVIEW_PAGE_EXTERNAL_SOURCE and obj.external_id)
 
     def create(self, validated_data):
         labels = validated_data.pop("labels", None)

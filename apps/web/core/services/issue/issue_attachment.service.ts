@@ -8,7 +8,12 @@ import type { AxiosRequestConfig } from "axios";
 import { API_BASE_URL } from "@plane/constants";
 // plane types
 import { getFileMetaDataForUpload, generateFileUploadPayload } from "@plane/services";
-import type { TIssueAttachment, TIssueAttachmentUploadResponse, TIssueServiceType } from "@plane/types";
+import type {
+  TIssueAttachment,
+  TIssueAttachmentPreview,
+  TIssueAttachmentUploadResponse,
+  TIssueServiceType,
+} from "@plane/types";
 import { EIssueServiceType } from "@plane/types";
 // services
 import { APIService } from "@/services/api.service";
@@ -71,6 +76,21 @@ export class IssueAttachmentService extends APIService {
   async getIssueAttachments(workspaceSlug: string, projectId: string, issueId: string): Promise<TIssueAttachment[]> {
     return this.get(
       `/api/assets/v2/workspaces/${workspaceSlug}/projects/${projectId}/${this.serviceType}/${issueId}/attachments/`
+    )
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async getIssueAttachmentPreview(
+    workspaceSlug: string,
+    projectId: string,
+    issueId: string,
+    assetId: string
+  ): Promise<TIssueAttachmentPreview> {
+    return this.get(
+      `/api/assets/v2/workspaces/${workspaceSlug}/projects/${projectId}/${EIssueServiceType.ISSUES}/${issueId}/attachments/${assetId}/preview/`
     )
       .then((response) => response?.data)
       .catch((error) => {

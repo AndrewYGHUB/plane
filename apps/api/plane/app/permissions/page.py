@@ -4,6 +4,10 @@
 
 from plane.db.models import ProjectMember, Page
 from plane.app.permissions import ROLE
+from plane.utils.attachment_preview import (
+    can_read_project_page,
+    preview_page_access_decision,
+)
 
 
 from rest_framework.permissions import BasePermission, SAFE_METHODS
@@ -52,6 +56,19 @@ class ProjectPagePermission(BasePermission):
                 project_pages__deleted_at__isnull=True,
             ).first()
             if page is None:
+                return False
+
+            preview_access = preview_page_access_decision(request.user, page, project_id)
+            if preview_access is False:
+                return False
+            if request.method in SAFE_METHODS:
+                return can_read_project_page(request.user, page, project_id)
+            if preview_access is True:
+                # Imported attachment previews are immutable projections of
+                # their source issue. A user who may read that issue may read
+                # the Page/detail/description/version endpoints, but even the
+                # Page owner must use the controlled import/mapping APIs rather
+                # than mutate or duplicate the derived Page directly.
                 return False
 
             # Allow access if the user is the owner of the page

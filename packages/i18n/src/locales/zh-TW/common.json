@@ -762,7 +762,12 @@
     "only_one_file_allowed": "一次只能上傳一個檔案。",
     "file_size_limit": "檔案大小必須小於或等於 {size}MB。",
     "drag_and_drop": "拖曳到任何位置以上傳",
-    "delete": "刪除附件"
+    "delete": "刪除附件",
+    "open_preview": "在 Plane Page 中開啟{name}",
+    "preview_not_ready": "此附件的 Plane Page 預覽尚未準備。",
+    "preview_unavailable": "此附件關聯的 Plane Page 目前無法使用。",
+    "preview_forbidden": "你沒有權限存取此 Plane Page 預覽。",
+    "preview_failed": "無法開啟 Plane Page 預覽，請重試。"
   },
   "label": {
     "select": "選擇標籤",

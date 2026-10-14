@@ -11,6 +11,8 @@ export type TIssueAttachment = {
   attributes: {
     name: string;
     size: number;
+    preview_kind?: TIssueAttachmentPreviewKind;
+    preview_page_id?: string;
   };
   asset_url: string;
   issue_id: string;
@@ -18,6 +20,14 @@ export type TIssueAttachment = {
   updated_at: string;
   updated_by: string;
   created_by: string;
+};
+
+export type TIssueAttachmentPreviewKind = "plane_page";
+
+export type TIssueAttachmentPreview = {
+  preview_status: "ready";
+  preview_kind: TIssueAttachmentPreviewKind;
+  preview_page_id: string;
 };
 
 export type TIssueAttachmentUploadResponse = TFileSignedURLResponse & {

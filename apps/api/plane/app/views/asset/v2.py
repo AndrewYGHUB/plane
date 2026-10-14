@@ -9,7 +9,7 @@ import uuid
 from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.utils import timezone
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 
 # Third party imports
@@ -22,6 +22,9 @@ from ..base import BaseAPIView
 from plane.db.models import FileAsset, Workspace, Project, User, WorkspaceMember, ProjectMember
 from plane.settings.storage import S3Storage
 from plane.app.permissions import allow_permission, ROLE
+from plane.app.serializers.asset import (
+    merge_attributes_preserving_controlled_preview,
+)
 from plane.utils.cache import invalidate_cache_directly
 from plane.utils.path_validator import sanitize_filename
 from plane.bgtasks.storage_metadata_task import get_asset_object_metadata
@@ -424,23 +427,53 @@ class WorkspaceFileAssetEndpoint(BaseAPIView):
                 {"error": "You don't have access to this asset."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        # get the storage metadata
-        asset.is_uploaded = True
-        # get the storage metadata
-        if not asset.storage_metadata:
-            get_asset_object_metadata.delay(asset_id=str(asset_id))
-        # get the entity and save the asset id for the request field
-        self.entity_asset_save(
-            asset_id=asset_id,
-            entity_type=asset.entity_type,
-            asset=asset,
-            request=request,
-        )
-        # update the attributes
-        asset.attributes = request.data.get("attributes", asset.attributes)
-        # save the asset
-        asset.save(update_fields=["is_uploaded", "attributes"])
-        return Response(status=status.HTTP_204_NO_CONTENT)
+
+        def update_asset(locked_asset):
+            requested_attributes = request.data.get("attributes", locked_asset.attributes)
+            attempted_preview_mutation = False
+            if locked_asset.entity_type == FileAsset.EntityTypeContext.ISSUE_ATTACHMENT:
+                requested_attributes, attempted_preview_mutation = (
+                    merge_attributes_preserving_controlled_preview(
+                        locked_asset.attributes,
+                        requested_attributes,
+                    )
+                )
+            if attempted_preview_mutation:
+                return Response(
+                    {
+                        "error": "Attachment preview mappings must use the controlled preview endpoint.",
+                        "code": "preview_mapping_requires_admin_endpoint",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # get the storage metadata
+            locked_asset.is_uploaded = True
+            # get the storage metadata
+            if not locked_asset.storage_metadata:
+                get_asset_object_metadata.delay(asset_id=str(asset_id))
+            # get the entity and save the asset id for the request field
+            self.entity_asset_save(
+                asset_id=asset_id,
+                entity_type=locked_asset.entity_type,
+                asset=locked_asset,
+                request=request,
+            )
+            # update the attributes
+            locked_asset.attributes = requested_attributes
+            # save the asset
+            locked_asset.save(update_fields=["is_uploaded", "attributes"])
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        if asset.entity_type == FileAsset.EntityTypeContext.ISSUE_ATTACHMENT:
+            with transaction.atomic():
+                asset = FileAsset.objects.select_for_update().get(id=asset_id, workspace__slug=slug)
+                if not self.has_project_asset_access(request, asset):
+                    return Response(
+                        {"error": "You don't have access to this asset."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+                return update_asset(asset)
+        return update_asset(asset)
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def delete(self, request, slug, asset_id):
@@ -648,17 +681,46 @@ class ProjectAssetEndpoint(BaseAPIView):
     def patch(self, request, slug, project_id, pk):
         # get the asset id
         asset = FileAsset.objects.get(id=pk, workspace__slug=slug, project_id=project_id)
-        # get the storage metadata
-        asset.is_uploaded = True
-        # get the storage metadata
-        if not asset.storage_metadata:
-            get_asset_object_metadata.delay(asset_id=str(pk))
 
-        # update the attributes
-        asset.attributes = request.data.get("attributes", asset.attributes)
-        # save the asset
-        asset.save(update_fields=["is_uploaded", "attributes"])
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        def update_asset(locked_asset):
+            requested_attributes = request.data.get("attributes", locked_asset.attributes)
+            attempted_preview_mutation = False
+            if locked_asset.entity_type == FileAsset.EntityTypeContext.ISSUE_ATTACHMENT:
+                requested_attributes, attempted_preview_mutation = (
+                    merge_attributes_preserving_controlled_preview(
+                        locked_asset.attributes,
+                        requested_attributes,
+                    )
+                )
+            if attempted_preview_mutation:
+                return Response(
+                    {
+                        "error": "Attachment preview mappings must use the controlled preview endpoint.",
+                        "code": "preview_mapping_requires_admin_endpoint",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # get the storage metadata
+            locked_asset.is_uploaded = True
+            # get the storage metadata
+            if not locked_asset.storage_metadata:
+                get_asset_object_metadata.delay(asset_id=str(pk))
+
+            # update the attributes
+            locked_asset.attributes = requested_attributes
+            # save the asset
+            locked_asset.save(update_fields=["is_uploaded", "attributes"])
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        if asset.entity_type == FileAsset.EntityTypeContext.ISSUE_ATTACHMENT:
+            with transaction.atomic():
+                asset = FileAsset.objects.select_for_update().get(
+                    id=pk,
+                    workspace__slug=slug,
+                    project_id=project_id,
+                )
+                return update_asset(asset)
+        return update_asset(asset)
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def delete(self, request, slug, project_id, pk):

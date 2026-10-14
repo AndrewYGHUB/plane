@@ -762,7 +762,12 @@
     "only_one_file_allowed": "Only one file can be uploaded at a time.",
     "file_size_limit": "File must be of {size}MB or less in size.",
     "drag_and_drop": "Drag and drop anywhere to upload",
-    "delete": "Delete attachment"
+    "delete": "Delete attachment",
+    "open_preview": "Open {name} in Plane Page",
+    "preview_not_ready": "A Plane Page preview has not been prepared for this attachment yet.",
+    "preview_unavailable": "The Plane Page preview for this attachment is unavailable.",
+    "preview_forbidden": "You do not have access to this Plane Page preview.",
+    "preview_failed": "The Plane Page preview could not be opened. Try again."
   },
   "label": {
     "select": "Add labels",

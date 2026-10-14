@@ -14,13 +14,15 @@ import { IssueAttachmentsDetail } from "./attachment-detail";
 import { IssueAttachmentsUploadDetails } from "./attachment-upload-details";
 
 type TIssueAttachmentsList = {
+  workspaceSlug: string;
+  projectId: string;
   issueId: string;
   attachmentHelpers: TAttachmentHelpers;
   disabled?: boolean;
 };
 
 export const IssueAttachmentsList = observer(function IssueAttachmentsList(props: TIssueAttachmentsList) {
-  const { issueId, attachmentHelpers, disabled } = props;
+  const { workspaceSlug, projectId, issueId, attachmentHelpers, disabled } = props;
   // store hooks
   const {
     attachment: { getAttachmentsByIssueId },
@@ -38,6 +40,9 @@ export const IssueAttachmentsList = observer(function IssueAttachmentsList(props
       {issueAttachments?.map((attachmentId) => (
         <IssueAttachmentsDetail
           key={attachmentId}
+          workspaceSlug={workspaceSlug}
+          projectId={projectId}
+          issueId={issueId}
           attachmentId={attachmentId}
           disabled={disabled}
           attachmentHelpers={attachmentHelpers}

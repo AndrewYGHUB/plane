@@ -136,6 +136,8 @@ from .issue.attachment import (
     IssueAttachmentEndpoint,
     # V2
     IssueAttachmentV2Endpoint,
+    IssueAttachmentPreviewEndpoint,
+    IssueAttachmentInlineEndpoint,
 )
 
 from .issue.comment import IssueCommentViewSet, CommentReactionViewSet
