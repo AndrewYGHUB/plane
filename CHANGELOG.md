@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-14 · DJS-8 Jenkins Groovy escaping
+
+- Escape the embedded Python regex and newline at the Groovy layer so Jenkins can compile the evidence-readback stage. The original Jenkinsfile is rejected by the actual Declarative compiler; the corrected Jenkinsfile validates (Plane evidence ev-ed88c165d57d).
+- Preserve source/SHA and required-suite binding; build and production acceptance remain pending.
+
 ## 2026-10-14 · DJS-8 issue attachment Page preview
 
 - Add an administrative issue-attachment to same-project Page mapping and safe derived Page previews for supported image and text attachments.

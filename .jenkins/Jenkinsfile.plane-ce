@@ -276,7 +276,7 @@ if any("未提交改动" in (row.get("comment_html") or "") for row in suite_mat
     raise SystemExit("DJS-8 development evidence was produced from a dirty worktree")
 source_sha = os.environ["SOURCE_SHA"]
 revision_pattern = re.compile(
-    r"<td>代码</td><td><code>[^<]+</code>\s*@\s*<code>([0-9a-f]{9,40})</code>"
+    r"<td>代码</td><td><code>[^<]+</code>\\s*@\\s*<code>([0-9a-f]{9,40})</code>"
 )
 revisions = {
     match.group(1)
@@ -304,7 +304,7 @@ status = {
 }
 target = Path(".plane-release/development-evidence-status.json")
 temporary = target.with_suffix(".tmp")
-temporary.write_text(json.dumps(status, sort_keys=True) + "\n", encoding="utf-8")
+temporary.write_text(json.dumps(status, sort_keys=True) + "\\n", encoding="utf-8")
 temporary.replace(target)
 print("DJS-8 PLANETEST1 development evidence readback: PASS")
 PY
