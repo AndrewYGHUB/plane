@@ -290,7 +290,7 @@ if len(revisions) != 1:
 evidence_revision = revisions.pop()
 if not source_sha.startswith(evidence_revision):
     import runpy
-    markers = ["DJS8-CI-TREE-EQUIVALENCE-V1:" + build_source_sha, "DJS8-SCOPED-LIVE-AMENDMENT-V1:" + build_source_sha, "DJS8-SCOPED-SIGNING-AMENDMENT-V1:" + build_source_sha]
+    markers = ["DJS8-CI-TREE-EQUIVALENCE-V1:" + build_source_sha, "DJS8-SCOPED-LIVE-AMENDMENT-V1:" + build_source_sha, "DJS8-SCOPED-SIGNING-AMENDMENT-V1:" + build_source_sha, "DJS8-SCOPED-ROOTFS-AMENDMENT-V1:" + build_source_sha]
     candidates = [row for row in comments if any(marker in (row.get("comment_html") or "") for marker in markers)]
     if len(candidates) != 1:
         raise SystemExit("CI-only source needs exactly one independent reviewed receipt")

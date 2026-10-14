@@ -6,6 +6,7 @@ oci_scan_rootfs() {
   _oci_root="$1"
   python3 - "$_oci_root" <<'PY'
 import os
+import re
 import sys
 
 root = os.path.realpath(sys.argv[1])
@@ -27,13 +28,53 @@ content_kind = ""
 scan_roots = {"etc", "app", "root", "home", "srv", "opt"}
 needles = (b"cpa_", b"sk-local")
 basic_auth = b"BASIC_AUTH_PASS="
-private_begin = b"-----BEGIN "
-private_end = b"PRIVATE KEY-----"
+# Delimiters are also present in parsers and documentation. Require adjacent
+# key material, not two unrelated strings somewhere in the same file. Matching
+# material is rejected even when its closing delimiter/base64 is malformed or
+# truncated. Do not require DER: OpenSSH and traditional encrypted PEM differ.
+private_header = re.compile(rb"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----[ \t]*\n")
+
+def normalize_newlines(data):
+    return data.replace(b"\\r\\n", b"\n").replace(b"\\n", b"\n").replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+def inspect_private(window):
+    # Return pending bytes only while a header is followed by plausible material
+    # or encrypted-PEM metadata. Bound that state; excessive pending input fails
+    # closed instead of dropping the header at a chunk boundary.
+    window = normalize_newlines(window)
+    while True:
+        match = private_header.search(window)
+        if not match:
+            return False, b""
+        candidate = window[match.end():]
+        material = 0
+        pending = True
+        for line in candidate.split(b"\n"):
+            line = line.strip()
+            if not line or line.startswith((b"Proc-Type:", b"DEK-Info:")):
+                continue
+            line = b"".join(line.split())
+            part = re.match(rb"[A-Za-z0-9+/=]+", line)
+            if part:
+                material += len(part.group())
+                if material >= 16:
+                    return True, b""
+                if part.end() == len(line):
+                    continue
+            # Placeholder/implementation text is not key material. A later
+            # independent header in this same window still must be examined.
+            pending = False
+            break
+        if pending:
+            saved = window[match.start():]
+            if len(saved) > 65536:
+                return True, b""
+            return False, saved
+        window = window[match.end():]
 
 def inspect_content(path):
     previous = b""
-    private_begin_seen = False
-    private_end_seen = False
+    private_pending = b""
     try:
         with open(path, "rb") as fh:
             while True:
@@ -47,11 +88,10 @@ def inspect_content(path):
                 value_pos = pos + len(basic_auth)
                 if pos >= 0 and len(data) > value_pos and data[value_pos:value_pos + 1] not in (b"\n", b"\r"):
                     return "known-secret-prefix"
-                private_begin_seen = private_begin_seen or private_begin in data
-                private_end_seen = private_end_seen or private_end in data
-                if private_begin_seen and private_end_seen:
+                found, private_pending = inspect_private(private_pending + chunk if private_pending else data)
+                if found:
                     return "private-key"
-                previous = data[-128:]
+                previous = data[-4096:]
     except OSError as exc:
         raise RuntimeError("unreadable") from exc
 

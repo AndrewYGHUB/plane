@@ -1,3 +1,11 @@
+## DJS-8：rootfs 私钥材料识别修订
+
+Plane #6 三镜像构建成功、Live Trivy secret/CRITICAL门通过，但额外rootfs规则把同文件无关BEGIN/PRIVATE KEY片段当私钥。实际归档报告确认dotenv16.4.7、react-doctor0.4.2进入Live镜像；本地相同dotenv文档含省略号占位示例、工具代码含匹配串。原rootfs归档未保留，不能断言实际命中路径。
+
+只修额外private-key识别：匹配相邻PEM私钥头与至少16字符key material，支持OpenSSH、加密传统PEM元数据、CRLF、字符串转义换行、跨chunk；截断/错误END/坏base64尾部仍拒绝。文件名、已知secret前缀、扫描树/不可读失败、原certs/ssl例外、Trivy、TLS与三扫描先于canonical push全部保持。纯delimiter/占位文档不等于key material。无Dockerfile、依赖锁或业务改动。
+
+独立rootfs10模式继承固定signing76真实ev-8754072a6d6f及Live46/ev-9705105277b5回执与可信GET，原CI5/Live7/signing9白名单未扩。新扫描/边界/证据绑定控制须clean执行、独立复审、原日志附件SHA回读后才一次正常后继构建；原PGWeb/Live业务验证不重跑，不宣称完整新SHA suite。失败6无可信制品或部署结论。
+
 ## DJS-8 · 签名前分范围证据绑定修订
 
 Plane #5 在扫描前因旧 same-SHA 检查拒绝已验证的分范围证据。新增独立 signing-amendment 回执：固定 PG/Web 原 9f93 证据、Live 46aa 实际协议/类型/构建及其可信原回执；新候选只允许精确 CI 文件变化，完整其他 Git 树及 Live 字节不变。原 CI-only 五文件和 Live 七文件模式不扩大。开发证据实时回读、完整变更 blob 和独立审查仍是构建资格，历史测试不会重标为新源码执行。

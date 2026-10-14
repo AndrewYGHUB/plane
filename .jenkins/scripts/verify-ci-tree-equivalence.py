@@ -14,8 +14,13 @@ LIVE_SOURCE='46aa52c93fe7a461350ca3b7609034c8705347a1'
 SIGNING_ALLOWED=LIVE_ALLOWED|frozenset(['.jenkins/scripts/sign-and-sbom.sh','.jenkins/scripts/verify-ci-contract.py'])
 SIGNING_COMMAND='python3 /Users/andrewyang/.codex/worktrees/djs1-brand-20261014/CloudHandStack/scratch/brand-20261014/verify-committed-plane-signing.py'
 SIGNING_TITLE='Plane signing amendment source binding and exact registry controls'
-MARKERS={'djs8-ci-tree-equivalence-v1':'DJS8-CI-TREE-EQUIVALENCE-V1:', 'djs8-scoped-live-amendment-v1':'DJS8-SCOPED-LIVE-AMENDMENT-V1:',SIGNING_SCHEMA:'DJS8-SCOPED-SIGNING-AMENDMENT-V1:'}
-RECEIPT_KEYS={'djs8-ci-tree-equivalence-v1':'ci_tree_equivalence','djs8-scoped-live-amendment-v1':'live_amendment_receipt',SIGNING_SCHEMA:'signing_amendment_receipt'}
+ROOTFS_SCHEMA='djs8-scoped-rootfs-amendment-v1'
+SIGNING_SOURCE='76f51e3a22e2bfc27db6e1c2bedf167924dc68b6'
+ROOTFS_ALLOWED=SIGNING_ALLOWED|frozenset(['.jenkins/scripts/lib-oci-rootfs-scan.sh'])
+ROOTFS_COMMAND='python3 /Users/andrewyang/.codex/worktrees/djs1-brand-20261014/CloudHandStack/scratch/brand-20261014/verify-committed-plane-rootfs.py'
+ROOTFS_TITLE='Plane rootfs material detection and inherited evidence binding controls'
+MARKERS={'djs8-ci-tree-equivalence-v1':'DJS8-CI-TREE-EQUIVALENCE-V1:', 'djs8-scoped-live-amendment-v1':'DJS8-SCOPED-LIVE-AMENDMENT-V1:',SIGNING_SCHEMA:'DJS8-SCOPED-SIGNING-AMENDMENT-V1:',ROOTFS_SCHEMA:'DJS8-SCOPED-ROOTFS-AMENDMENT-V1:'}
+RECEIPT_KEYS={'djs8-ci-tree-equivalence-v1':'ci_tree_equivalence','djs8-scoped-live-amendment-v1':'live_amendment_receipt',SIGNING_SCHEMA:'signing_amendment_receipt',ROOTFS_SCHEMA:'rootfs_amendment_receipt'}
 TRUSTED_AUTHOR='97e3f3ff-f92a-4003-a961-0465c458b993'
 CONTROL_COMMAND='python3 /Users/andrewyang/.codex/worktrees/djs1-brand-20261014/CloudHandStack/scratch/brand-20261014/verify-committed-plane-ci.py'
 CONTROL_TITLE='Plane CI-only committed tree and independent control binding'
@@ -27,8 +32,10 @@ def validate_control_comment(comments,proof,sha):
  assert row.get('created_by')==row.get('actor')==TRUSTED_AUTHOR,'control author is not the fixed trusted evidence publisher'
  command=LIVE_COMMAND if proof['schema']=='djs8-scoped-live-amendment-v1' else CONTROL_COMMAND
  if proof['schema']==SIGNING_SCHEMA:command=SIGNING_COMMAND
+ if proof['schema']==ROOTFS_SCHEMA:command=ROOTFS_COMMAND
  title=LIVE_TITLE if proof['schema']=='djs8-scoped-live-amendment-v1' else CONTROL_TITLE
  if proof['schema']==SIGNING_SCHEMA:title=SIGNING_TITLE
+ if proof['schema']==ROOTFS_SCHEMA:title=ROOTFS_TITLE
  for required in ['④⑤开发中','<td>结论</td><td>✅ 通过</td>','<td>退出码</td><td><code>0</code></td>', '<td>测的是什么</td><td>'+title+'</td>', '<td>命令</td><td><code>'+html.escape(command+' '+sha)+'</code></td>', 'CI_BUILD_SOURCE_SHA='+sha, 'CI_CONTROL_LOG_SHA256='+proof['ci_control_log_sha256']]:
   assert required in body,'committed CI control contract is missing'
  assert '未提交改动' not in body,'committed control tree must be clean'
@@ -52,7 +59,19 @@ def verify_tree(proof,sha):
  assert re.fullmatch('[0-9a-f]{40}',sha)
  assert proof['schema'] in MARKERS and proof['tested_source_sha']==BASE and proof['build_source_sha']==sha and proof['development_evidence']==EVIDENCE
  assert proof['independent_review']=='APPROVE' and re.fullmatch('ev-[0-9a-f]{12}',proof['ci_control_evidence']) and re.fullmatch('[0-9a-f]{64}',proof['ci_control_log_sha256'])
- allowed=SIGNING_ALLOWED if proof['schema']==SIGNING_SCHEMA else LIVE_ALLOWED if proof['schema']=='djs8-scoped-live-amendment-v1' else ALLOWED
+ allowed=ROOTFS_ALLOWED if proof['schema']==ROOTFS_SCHEMA else SIGNING_ALLOWED if proof['schema']==SIGNING_SCHEMA else LIVE_ALLOWED if proof['schema']=='djs8-scoped-live-amendment-v1' else ALLOWED
+ if proof['schema']==ROOTFS_SCHEMA:
+  prior=proof['previous_signing_receipt']
+  assert prior['schema']==SIGNING_SCHEMA and prior['build_source_sha']==SIGNING_SOURCE
+  assert prior['ci_control_evidence']=='ev-8754072a6d6f','must reuse actual committed signing control'
+  verify_tree(prior,SIGNING_SOURCE)
+  assert hashlib.sha256(json.dumps(prior,sort_keys=True,separators=(',',':')).encode()).hexdigest()==proof['previous_signing_receipt_sha256']
+  previous,current=tree(SIGNING_SOURCE),tree(sha)
+  amendment={p for p in previous.keys()|current.keys() if previous.get(p)!=current.get(p)}
+  assert amendment and amendment <= frozenset(['.jenkins/Jenkinsfile.plane-ce','.jenkins/scripts/build-plane-images.sh','.jenkins/scripts/verify-ci-tree-equivalence.py','.jenkins/scripts/lib-oci-rootfs-scan.sh','CHANGELOG.md']),'rootfs amendment must change scanner and evidence routing only'
+  assert '.jenkins/scripts/lib-oci-rootfs-scan.sh' in amendment
+  assert proof['component_validation_sources']=={'pg_web':BASE,'live_amendment':LIVE_SOURCE,'signing_amendment':SIGNING_SOURCE,'rootfs_amendment':sha,'old_live_suite':'historical only'}
+  assert proof['original_suite_reexecuted'] is False and proof['live_validation_reexecuted'] is False
  if proof['schema']==SIGNING_SCHEMA:
   prior=proof['previous_live_receipt']
   assert prior['schema']=='djs8-scoped-live-amendment-v1' and prior['build_source_sha']==LIVE_SOURCE
@@ -85,6 +104,16 @@ if __name__=='__main__':
  except Exception:raise SystemExit('Scoped receipt/tree verification rejected') from None
 
 def validate_prior_live_comment(comments,proof):
+ if proof['schema']==ROOTFS_SCHEMA:
+  prior=proof['previous_signing_receipt'];marker=MARKERS[SIGNING_SCHEMA]+SIGNING_SOURCE
+  rows=[r for r in comments if marker in (r.get('comment_html') or '')]
+  assert len(rows)==1,'exact original signing receipt required'
+  row=rows[0];assert row.get('created_by')==row.get('actor')==TRUSTED_AUTHOR
+  encoded=re.search(r'<pre>(.*?)</pre>',row.get('comment_html') or '',re.S)
+  assert encoded and json.loads(html.unescape(encoded.group(1)))==prior,'prior signing receipt differs from trusted Plane readback'
+  validate_control_comment(comments,prior,SIGNING_SOURCE)
+  validate_prior_live_comment(comments,prior)
+  return
  if proof['schema']!=SIGNING_SCHEMA:return
  prior=proof['previous_live_receipt'];marker=MARKERS[prior['schema']]+LIVE_SOURCE
  rows=[r for r in comments if marker in (r.get('comment_html') or '')]
@@ -104,7 +133,7 @@ def validate_release_binding(payload):
   assert v['development_evidence_reference']==proof['development_evidence']
   assert v['development_evidence_verified_source_sha']==v['tested_source_sha']==proof['tested_source_sha']
   assert v['build_source_sha']==source and v['full_unit_test_suite_executed'] is False
-  if schema==SIGNING_SCHEMA:assert v['component_validation_sources']==proof['component_validation_sources']
+  if schema in (SIGNING_SCHEMA,ROOTFS_SCHEMA):assert v['component_validation_sources']==proof['component_validation_sources']
   elif schema=='djs8-scoped-live-amendment-v1':assert v['component_validation_sources']=={'pg_web':BASE,'live_amendment':source,'old_live_suite':'historical only'}
  else:assert v['development_evidence_verified_source_sha']==source
  return True
