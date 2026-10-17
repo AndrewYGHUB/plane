@@ -6,6 +6,7 @@
 
 // local imports
 import { getFileURL } from "../file";
+import { isEditorInlineAttachment } from "./inline-attachment";
 
 type TEditorSrcArgs = {
   assetId: string;
@@ -19,6 +20,8 @@ type TEditorSrcArgs = {
  */
 export const getEditorAssetSrc = (args: TEditorSrcArgs): string | undefined => {
   const { assetId, projectId, workspaceSlug } = args;
+  if (isEditorInlineAttachment(args)) return getFileURL(assetId);
+  if (["/", "\\", "?", "#", "%"].some((character) => assetId.includes(character))) return undefined;
   let url: string | undefined = "";
   if (projectId) {
     url = getFileURL(`/api/assets/v2/workspaces/${workspaceSlug}/projects/${projectId}/${assetId}/`);
@@ -34,6 +37,8 @@ export const getEditorAssetSrc = (args: TEditorSrcArgs): string | undefined => {
  */
 export const getEditorAssetDownloadSrc = (args: TEditorSrcArgs): string | undefined => {
   const { assetId, projectId, workspaceSlug } = args;
+  // Inline preview sources never acquire a download URL or an asset-id fallback.
+  if (["/", "\\", "?", "#", "%"].some((character) => assetId.includes(character))) return undefined;
   let url: string | undefined = "";
   if (projectId) {
     url = getFileURL(`/api/assets/v2/workspaces/${workspaceSlug}/projects/${projectId}/download/${assetId}/`);

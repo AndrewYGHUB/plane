@@ -25,6 +25,7 @@ export const TrackFileRestorationPlugin = (editor: Editor, restoreHandler: TFile
   new Plugin({
     key: RESTORE_PLUGIN_KEY,
     appendTransaction: (transactions: readonly Transaction[], oldState: EditorState, newState: EditorState) => {
+      if (!editor.isEditable) return null;
       if (!transactions.some((tr) => tr.docChanged)) return null;
 
       const oldFileSources: {

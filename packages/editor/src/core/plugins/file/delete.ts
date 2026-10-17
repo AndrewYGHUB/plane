@@ -23,6 +23,7 @@ export const TrackFileDeletionPlugin = (editor: Editor, deleteHandler: TFileHand
   new Plugin({
     key: DELETE_PLUGIN_KEY,
     appendTransaction: (transactions: readonly Transaction[], oldState: EditorState, newState: EditorState) => {
+      if (!editor.isEditable) return null;
       const newFileSources: {
         [nodeType: string]: Set<string> | undefined;
       } = {};

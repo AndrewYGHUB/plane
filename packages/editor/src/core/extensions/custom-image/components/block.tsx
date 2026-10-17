@@ -237,6 +237,7 @@ export function CustomImageBlock(props: CustomImageBlockProps) {
     >
       <div
         ref={containerRef}
+        role="presentation"
         className="group/image-component relative inline-block max-w-full"
         onMouseDown={handleImageMouseDown}
         style={{
@@ -255,7 +256,7 @@ export function CustomImageBlock(props: CustomImageBlockProps) {
           onError={(_e) =>
             void (async () => {
               // for old image extension this command doesn't exist or if the image failed to load for the first time
-              if (!extension.options.restoreImage || hasTriedRestoringImageOnce) {
+              if (!editor.isEditable || !extension.options.restoreImage || hasTriedRestoringImageOnce) {
                 setFailedToLoadImage(true);
                 return;
               }
@@ -334,6 +335,7 @@ export function CustomImageBlock(props: CustomImageBlockProps) {
               )}
             />
             <div
+              role="presentation"
               className={cn(
                 "absolute bottom-0 size-4 translate-y-1/2 rounded-full border-2 border-white bg-accent-primary transition-opacity duration-100 ease-in-out",
                 {

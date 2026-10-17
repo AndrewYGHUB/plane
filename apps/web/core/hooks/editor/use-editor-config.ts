@@ -44,6 +44,9 @@ export const useEditorConfig = () => {
           return res?.exists ?? false;
         },
         delete: async (src: string) => {
+          // Root-relative preview routes are read-only, never mutable asset IDs.
+          if (!src.startsWith("http") && ["/", "\\", "?", "#", "%"].some((character) => src.includes(character)))
+            return;
           if (src?.startsWith("http")) {
             await fileService.deleteOldWorkspaceAsset(workspaceId, src);
           } else {
@@ -85,6 +88,8 @@ export const useEditorConfig = () => {
           }
         },
         restore: async (src: string) => {
+          if (!src.startsWith("http") && ["/", "\\", "?", "#", "%"].some((character) => src.includes(character)))
+            return;
           if (src?.startsWith("http")) {
             await fileService.restoreOldEditorAsset(workspaceId, src);
           } else {

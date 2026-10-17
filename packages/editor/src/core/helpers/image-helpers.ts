@@ -19,6 +19,7 @@ import type { TFileHandler } from "@/types";
  * apiserver
  */
 export const restorePublicImages = (editor: Editor, restoreImageFn: TFileHandler["restore"]) => {
+  if (!editor.isEditable) return;
   const imageSources = new Set<string>();
   editor.state.doc.descendants((node) => {
     if ([CORE_EXTENSIONS.IMAGE, CORE_EXTENSIONS.CUSTOM_IMAGE].includes(node.type.name as CORE_EXTENSIONS)) {

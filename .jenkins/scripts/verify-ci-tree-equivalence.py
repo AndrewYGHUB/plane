@@ -19,8 +19,49 @@ SIGNING_SOURCE='76f51e3a22e2bfc27db6e1c2bedf167924dc68b6'
 ROOTFS_ALLOWED=SIGNING_ALLOWED|frozenset(['.jenkins/scripts/lib-oci-rootfs-scan.sh'])
 ROOTFS_COMMAND='python3 /Users/andrewyang/.codex/worktrees/djs1-brand-20261014/CloudHandStack/scratch/brand-20261014/verify-committed-plane-rootfs.py'
 ROOTFS_TITLE='Plane rootfs material detection and inherited evidence binding controls'
-MARKERS={'djs8-ci-tree-equivalence-v1':'DJS8-CI-TREE-EQUIVALENCE-V1:', 'djs8-scoped-live-amendment-v1':'DJS8-SCOPED-LIVE-AMENDMENT-V1:',SIGNING_SCHEMA:'DJS8-SCOPED-SIGNING-AMENDMENT-V1:',ROOTFS_SCHEMA:'DJS8-SCOPED-ROOTFS-AMENDMENT-V1:'}
-RECEIPT_KEYS={'djs8-ci-tree-equivalence-v1':'ci_tree_equivalence','djs8-scoped-live-amendment-v1':'live_amendment_receipt',SIGNING_SCHEMA:'signing_amendment_receipt',ROOTFS_SCHEMA:'rootfs_amendment_receipt'}
+FRONTEND_SCHEMA='djs8-scoped-frontend-amendment-v1'
+FRONTEND_BASE='5047bf3f79ef0a7ca3652b268b3299983f847e9c'
+FRONTEND_PRIOR_SHA256='e6ad6f3d7528e1e4ccb518bd7924c8829accdca07a82d08bca9f9e38c1dc572f'
+FRONTEND_FILES=frozenset([
+ 'apps/web/core/hooks/editor/use-editor-config.ts',
+ 'packages/editor/src/core/extensions/custom-image/components/block.tsx',
+ 'packages/editor/src/core/helpers/image-helpers.ts',
+ 'packages/editor/src/core/plugins/file/delete.ts',
+ 'packages/editor/src/core/plugins/file/restore.ts',
+ 'packages/utils/src/editor/common.ts',
+ 'packages/utils/src/editor/inline-attachment.ts',
+ 'packages/utils/src/editor/inline-attachment.test.mjs',
+])
+FRONTEND_CI=frozenset(['.jenkins/Jenkinsfile.plane-ce','.jenkins/scripts/build-plane-images.sh','.jenkins/scripts/verify-ci-tree-equivalence.py','.jenkins/scripts/test-frontend-amendment.py'])
+FRONTEND_ALLOWED=ROOTFS_ALLOWED|FRONTEND_FILES|FRONTEND_CI
+FRONTEND_COMMAND='python3 /Users/andrewyang/.codex/worktrees/djs1-brand-20261014/CloudHandStack/scratch/brand-20261014/verify-committed-plane-frontend.py'
+FRONTEND_TITLE='Plane frontend amendment actual scoped controls types and complete Web build'
+FRONTEND_VALIDATION_COMMANDS={
+ 'controls':'node --test --test-concurrency=1 packages/utils/src/editor/inline-attachment.test.mjs',
+ 'types':'pnpm exec turbo run check:types --filter=web --filter=@plane/editor --filter=@plane/utils --concurrency=1',
+ 'build':'pnpm exec turbo run build --filter=web --concurrency=1',
+}
+
+def canonical_sha256(value):
+ return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+
+def frontend_validation_sources(sha):
+ return {'pg':BASE,'old_web_suite':'historical only','live_amendment':LIVE_SOURCE,'signing_amendment':SIGNING_SOURCE,'rootfs_amendment':FRONTEND_BASE,'frontend_amendment':sha}
+
+def validate_frontend_validation(proof,sha):
+ v=proof['frontend_validation']
+ assert set(v)=={'source_sha','controls','types','build','single_concurrency','cpu_budget_percent'}
+ assert v['source_sha']==sha and v['single_concurrency'] is True and v['cpu_budget_percent']==90
+ for key,command in FRONTEND_VALIDATION_COMMANDS.items():
+  row=v[key]
+  assert set(row)=={'command','exit_code','log_sha256'} and row['command']==command
+  assert type(row['exit_code']) is int and row['exit_code']==0 and re.fullmatch('[0-9a-f]{64}',row['log_sha256'])
+ assert proof['component_validation_sources']==frontend_validation_sources(sha)
+ assert proof['original_suite_reexecuted'] is False and proof['live_validation_reexecuted'] is False
+ return True
+
+MARKERS={'djs8-ci-tree-equivalence-v1':'DJS8-CI-TREE-EQUIVALENCE-V1:', 'djs8-scoped-live-amendment-v1':'DJS8-SCOPED-LIVE-AMENDMENT-V1:',SIGNING_SCHEMA:'DJS8-SCOPED-SIGNING-AMENDMENT-V1:',ROOTFS_SCHEMA:'DJS8-SCOPED-ROOTFS-AMENDMENT-V1:',FRONTEND_SCHEMA:'DJS8-SCOPED-FRONTEND-AMENDMENT-V1:'}
+RECEIPT_KEYS={'djs8-ci-tree-equivalence-v1':'ci_tree_equivalence','djs8-scoped-live-amendment-v1':'live_amendment_receipt',SIGNING_SCHEMA:'signing_amendment_receipt',ROOTFS_SCHEMA:'rootfs_amendment_receipt',FRONTEND_SCHEMA:'frontend_amendment_receipt'}
 TRUSTED_AUTHOR='97e3f3ff-f92a-4003-a961-0465c458b993'
 CONTROL_COMMAND='python3 /Users/andrewyang/.codex/worktrees/djs1-brand-20261014/CloudHandStack/scratch/brand-20261014/verify-committed-plane-ci.py'
 CONTROL_TITLE='Plane CI-only committed tree and independent control binding'
@@ -33,11 +74,16 @@ def validate_control_comment(comments,proof,sha):
  command=LIVE_COMMAND if proof['schema']=='djs8-scoped-live-amendment-v1' else CONTROL_COMMAND
  if proof['schema']==SIGNING_SCHEMA:command=SIGNING_COMMAND
  if proof['schema']==ROOTFS_SCHEMA:command=ROOTFS_COMMAND
+ if proof['schema']==FRONTEND_SCHEMA:command=FRONTEND_COMMAND
  title=LIVE_TITLE if proof['schema']=='djs8-scoped-live-amendment-v1' else CONTROL_TITLE
  if proof['schema']==SIGNING_SCHEMA:title=SIGNING_TITLE
  if proof['schema']==ROOTFS_SCHEMA:title=ROOTFS_TITLE
+ if proof['schema']==FRONTEND_SCHEMA:title=FRONTEND_TITLE
  for required in ['④⑤开发中','<td>结论</td><td>✅ 通过</td>','<td>退出码</td><td><code>0</code></td>', '<td>测的是什么</td><td>'+title+'</td>', '<td>命令</td><td><code>'+html.escape(command+' '+sha)+'</code></td>', 'CI_BUILD_SOURCE_SHA='+sha, 'CI_CONTROL_LOG_SHA256='+proof['ci_control_log_sha256']]:
   assert required in body,'committed CI control contract is missing'
+ if proof['schema']==FRONTEND_SCHEMA:
+  validate_frontend_validation(proof,sha)
+  assert 'FRONTEND_VALIDATION_SHA256='+canonical_sha256(proof['frontend_validation']) in body,'actual frontend validation record binding required'
  assert '未提交改动' not in body,'committed control tree must be clean'
  revisions=re.findall(r'<td>代码</td><td><code>[^<]+</code>\s*@\s*<code>([0-9a-f]{9,40})</code>',body)
  assert len(revisions)==1 and sha.startswith(revisions[0]),'control must execute from actual candidate Git source'
@@ -59,7 +105,17 @@ def verify_tree(proof,sha):
  assert re.fullmatch('[0-9a-f]{40}',sha)
  assert proof['schema'] in MARKERS and proof['tested_source_sha']==BASE and proof['build_source_sha']==sha and proof['development_evidence']==EVIDENCE
  assert proof['independent_review']=='APPROVE' and re.fullmatch('ev-[0-9a-f]{12}',proof['ci_control_evidence']) and re.fullmatch('[0-9a-f]{64}',proof['ci_control_log_sha256'])
- allowed=ROOTFS_ALLOWED if proof['schema']==ROOTFS_SCHEMA else SIGNING_ALLOWED if proof['schema']==SIGNING_SCHEMA else LIVE_ALLOWED if proof['schema']=='djs8-scoped-live-amendment-v1' else ALLOWED
+ allowed=FRONTEND_ALLOWED if proof['schema']==FRONTEND_SCHEMA else ROOTFS_ALLOWED if proof['schema']==ROOTFS_SCHEMA else SIGNING_ALLOWED if proof['schema']==SIGNING_SCHEMA else LIVE_ALLOWED if proof['schema']=='djs8-scoped-live-amendment-v1' else ALLOWED
+ if proof['schema']==FRONTEND_SCHEMA:
+  prior=proof['previous_rootfs_receipt']
+  assert prior['schema']==ROOTFS_SCHEMA and prior['build_source_sha']==FRONTEND_BASE
+  assert prior['ci_control_evidence']=='ev-172565ad2125','must inherit original committed rootfs control'
+  assert canonical_sha256(prior)==proof['previous_rootfs_receipt_sha256']==FRONTEND_PRIOR_SHA256,'fixed inherited rootfs receipt mismatch'
+  verify_tree(prior,FRONTEND_BASE)
+  previous,current=tree(FRONTEND_BASE),tree(sha)
+  amendment={p for p in previous.keys()|current.keys() if previous.get(p)!=current.get(p)}
+  assert amendment==FRONTEND_FILES|FRONTEND_CI,'frontend amendment requires exact reviewed eight sources and four protocol files only'
+  validate_frontend_validation(proof,sha)
  if proof['schema']==ROOTFS_SCHEMA:
   prior=proof['previous_signing_receipt']
   assert prior['schema']==SIGNING_SCHEMA and prior['build_source_sha']==SIGNING_SOURCE
@@ -104,6 +160,16 @@ if __name__=='__main__':
  except Exception:raise SystemExit('Scoped receipt/tree verification rejected') from None
 
 def validate_prior_live_comment(comments,proof):
+ if proof['schema']==FRONTEND_SCHEMA:
+  prior=proof['previous_rootfs_receipt'];marker=MARKERS[ROOTFS_SCHEMA]+FRONTEND_BASE
+  rows=[r for r in comments if marker in (r.get('comment_html') or '')]
+  assert len(rows)==1,'exact original rootfs receipt required'
+  row=rows[0];assert row.get('created_by')==row.get('actor')==TRUSTED_AUTHOR
+  encoded=re.search(r'<pre>(.*?)</pre>',row.get('comment_html') or '',re.S)
+  assert encoded and json.loads(html.unescape(encoded.group(1)))==prior,'prior rootfs receipt differs from trusted Plane readback'
+  validate_control_comment(comments,prior,FRONTEND_BASE)
+  validate_prior_live_comment(comments,prior)
+  return
  if proof['schema']==ROOTFS_SCHEMA:
   prior=proof['previous_signing_receipt'];marker=MARKERS[SIGNING_SCHEMA]+SIGNING_SOURCE
   rows=[r for r in comments if marker in (r.get('comment_html') or '')]
@@ -133,7 +199,7 @@ def validate_release_binding(payload):
   assert v['development_evidence_reference']==proof['development_evidence']
   assert v['development_evidence_verified_source_sha']==v['tested_source_sha']==proof['tested_source_sha']
   assert v['build_source_sha']==source and v['full_unit_test_suite_executed'] is False
-  if schema in (SIGNING_SCHEMA,ROOTFS_SCHEMA):assert v['component_validation_sources']==proof['component_validation_sources']
+  if schema in (SIGNING_SCHEMA,ROOTFS_SCHEMA,FRONTEND_SCHEMA):assert v['component_validation_sources']==proof['component_validation_sources']
   elif schema=='djs8-scoped-live-amendment-v1':assert v['component_validation_sources']=={'pg_web':BASE,'live_amendment':source,'old_live_suite':'historical only'}
  else:assert v['development_evidence_verified_source_sha']==source
  return True
