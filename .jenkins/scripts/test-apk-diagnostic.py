@@ -101,6 +101,19 @@ class Controls(unittest.TestCase):
             return m.parse_plan(f'(1/1) Installing .build-deps ({version})\nOK: 1 MiB in 1 packages\n'.encode(), b'', {}, {})
         self.assertEqual(plan('20261017.123456'), plan('20261017.234567'))
 
+    def test_installed_virtual_identity_does_not_gain_plan_semantics(self):
+        data = b'P:.python-rundeps\nV:20250531.000952\nA:noarch\n'
+        self.assertEqual(m.records(data, True), {('.python-rundeps', '20250531.000952', 'noarch'): None})
+        for name in ('.python-rundeps', '.build-deps.evil'):
+            line = f'(1/1) Installing {name} (20250531.000952)\nOK: 1 MiB in 1 packages\n'.encode()
+            with self.subTest(name=m.digest(name.encode())), self.assertRaises(m.Rejected):
+                m.parse_plan(line, b'', {}, {})
+
+    def test_virtual_identity_rejects_malformed_and_overlong_names(self):
+        for name in ('.', '..python-rundeps', '.python/rundeps', '.' + 'a' * 160):
+            with self.subTest(name=m.digest(name.encode())), self.assertRaises(m.Rejected):
+                m.records(f'P:{name}\nV:1\nA:noarch\n'.encode(), True)
+
     def test_metadata_unknown_arch_duplicates_and_sizes(self):
         self.assertEqual(m.records(b'P:llvm18\nV:18-r0\nA:x86_64\nS:50\nI:100\n'), {('llvm18','18-r0','x86_64'):(50,100)})
         for data in (b'P:a\nV:1\nA:arm64\nS:2\nI:4', b'P:a\nP:b\nV:1\nA:x86_64', b'P:a\nV:1\nA:x86_64\nS:-1\nI:4'):
@@ -414,10 +427,24 @@ os.close(1);os.close(2);time.sleep(30)
 
 if __name__ == '__main__':
     # Fixed names/status only. Never print exception text, fixture data or argv.
+    revision = sys.argv[1:] == ['--revision']
+    if sys.argv[1:] and not revision:
+        print(json.dumps({'suite':'apk-diagnostic-controls-v1','tests':0,'failures':[],'errors':['invalid_arguments']}))
+        sys.exit(2)
     result = unittest.TestResult()
-    unittest.defaultTestLoader.loadTestsFromTestCase(Controls).run(result)
-    unittest.defaultTestLoader.loadTestsFromTestCase(InstalledControls).run(result)
-    if sys.platform == 'linux':
-        unittest.defaultTestLoader.loadTestsFromTestCase(LinuxControls).run(result)
-    print(json.dumps({'suite':'apk-diagnostic-controls-v1','tests':result.testsRun,'failures':[test.id().split('.')[-1] for test,_ in result.failures],'errors':[test.id().split('.')[-1] for test,_ in result.errors]}))
+    if revision:
+        names = (
+            'test_virtual_version_only_normalization',
+            'test_installed_virtual_identity_does_not_gain_plan_semantics',
+            'test_virtual_identity_rejects_malformed_and_overlong_names',
+            'test_metadata_unknown_arch_duplicates_and_sizes',
+        )
+        unittest.TestSuite(Controls(name) for name in names).run(result)
+    else:
+        unittest.defaultTestLoader.loadTestsFromTestCase(Controls).run(result)
+        unittest.defaultTestLoader.loadTestsFromTestCase(InstalledControls).run(result)
+        if sys.platform == 'linux':
+            unittest.defaultTestLoader.loadTestsFromTestCase(LinuxControls).run(result)
+    suite = 'apk-diagnostic-revision-v1' if revision else 'apk-diagnostic-controls-v1'
+    print(json.dumps({'suite':suite,'tests':result.testsRun,'failures':[test.id().split('.')[-1] for test,_ in result.failures],'errors':[test.id().split('.')[-1] for test,_ in result.errors]}))
     sys.exit(0 if result.wasSuccessful() else 1)

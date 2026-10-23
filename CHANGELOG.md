@@ -1,3 +1,10 @@
+## 2026-10-24 DJS-8 APK虚拟包语法修订（候选，尚未测试或构建）
+
+- build9在获取阶段拒绝基础镜像已有的`.python-rundeps`虚拟包名；本轮修订由独立helper与定向回归改动落实，未宣称旧构建成功。
+- 新增一次性APK revision回执模式，直接parent固定已发布的`d01b55718890310ec14054ae57c3b6ddf102fbd8`，原APK回执canonical固定`ad76ee22ebff1c4066e5ef1913ab6f503df7ae392173940b14fd7cafae24e558`；递归核原APK/frontend及可信控制链，不改原v1回执协议。
+- 本次精确7文件delta与累计受保护树分别核验；来源保留原APK/前端/历史业务验证，仅新增本次诊断修订SHA。Jenkins和release.json使用独立marker/回执键，冲突模式失败关闭。
+- 新增窄revision协议控制源码；只认可`test-apk-diagnostic.py --revision`与新`test-apk-revision.py`的实际候选结果。未运行任何测试，旧40项与前端types/build未重跑，旧发布intent与build9证据保留。
+
 ## 2026-10-18 DJS-8 APK首审修订
 
 - 单独校验cache/installed的普通单链接、大小、identity/hash及已安装非仓库header；安装前冻结，add/del后按数据库校验允许变化，其他文件继续拒绝。

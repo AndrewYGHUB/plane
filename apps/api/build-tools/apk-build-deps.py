@@ -24,6 +24,7 @@ STREAM_LIMIT = 4 * 1024**2
 TOTAL_LIMIT = 16 * 1024**2
 INDEX_LIMIT = 128 * 1024**2
 TOKEN = r'[A-Za-z0-9][A-Za-z0-9+_.~-]{0,159}'
+VIRTUAL_NAME = r'\.[A-Za-z0-9][A-Za-z0-9+_.~-]{0,158}'
 ACTION = re.compile(r'\((\d+)/(\d+)\) (Installing|Purging|Upgrading|Downgrading|Replacing|Reinstalling|Updating pinning) (\.build-deps|' + TOKEN + r') \((' + TOKEN + r')(?: -> (' + TOKEN + r'))?\)')
 STAGES = {'acquire', 'integrity', 'offline_solve', 'install', 'pip', 'delete', 'cleanup'}
 CODES = {'ok', 'acquire_unknown', 'integrity_unknown', 'offline_solve_unknown', 'install_unknown', 'pip_unknown', 'delete_unknown', 'cleanup_unknown', 'timeout', 'output_limit', 'diagnostic_failure', 'state_drift', 'plan_mismatch', 'capacity', 'format'}
@@ -181,7 +182,10 @@ def records(data, installed=False):
                 fields[key] = value
         need(all(k in fields for k in ('P', 'V', 'A')), 'format')
         name, version, arch = (fields[k] for k in ('P', 'V', 'A'))
-        need((name == '.build-deps' or re.fullmatch(TOKEN, name)) and re.fullmatch(TOKEN, version) and arch in ('x86_64', 'noarch'), 'format')
+        # apk --virtual accepts dot-prefixed package identities.  They may
+        # occur in a base image's installed database (for example
+        # .python-rundeps), but only .build-deps has plan semantics below.
+        need(re.fullmatch(r'(?:' + TOKEN + '|' + VIRTUAL_NAME + r')', name) and re.fullmatch(TOKEN, version) and arch in ('x86_64', 'noarch'), 'format')
         key = (name, version, arch)
         if installed:
             value = None
