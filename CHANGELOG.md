@@ -1,3 +1,33 @@
+## 2026-10-18 DJS-8 APK首审修订
+
+- 单独校验cache/installed的普通单链接、大小、identity/hash及已安装非仓库header；安装前冻结，add/del后按数据库校验允许变化，其他文件继续拒绝。
+- cache-max-age改60分钟，避免int乘60溢出；补受影响控制，独立复审待完成。
+
+## DJS-8 APK diagnostic amendment (local candidate, 2026-10-17)
+
+- Preserve the nine build constraints and original pip invocation in one RUN;
+  use a private signed APK cache, exact frozen online/offline plans and state
+  validation before/after installation, pip and planned deletion. All child
+  streams are bounded in RAM; unknown errors stop the build without retry.
+- Add a separate exact-eight-path APK receipt whose direct parent is 25bf24d,
+  with the fixed prior frontend receipt and all historical validation sources.
+  Original suite, frontend types/build and DJS-9 are not reexecuted.
+- Draft controls passed: 13 (ev-f83fcc341495), 8 protocol (ev-8de48816b97c),
+  revised 16 diagnostic + 9 protocol (ev-626ce9d9181e). Exact committed-source
+  controls and independent diff/hash review remain outstanding.
+  Receiver reaping errors now still close both pipes and clear RAM buffers;
+  17 diagnostic controls passed (ev-f1f0f221eb65).
+- Continue locally without subagents: reject preexisting Linux children, reap
+  detached/double-fork children, use FD-relative flat-cache cleanup, and fail
+  receipt verification under optimized Python. Acquisition signature/conflict/
+  stream/cache-write failure boundaries stop before installation.
+- New controls: local 23 (ev-a1e5862290f8), actual Linux Python 26
+  (ev-ba736a7bc320), receipt protocol 10 (ev-2153b4d0de2a). The Linux
+  failures ev-a0ba9871b6cd/ev-3f186a9804f2 exposed a test injection into
+  Python's spawn pipe; corrected injection targets only receiver reads.
+  Linux controls use synthetic subprocesses, not real APK installation.
+  No new CI, artifact or deployment; build #8 remains FAILURE, cause unknown.
+
 ## DJS-8：rootfs 私钥材料识别修订
 
 Plane #6 三镜像构建成功、Live Trivy secret/CRITICAL门通过，但额外rootfs规则把同文件无关BEGIN/PRIVATE KEY片段当私钥。实际归档报告确认dotenv16.4.7、react-doctor0.4.2进入Live镜像；本地相同dotenv文档含省略号占位示例、工具代码含匹配串。原rootfs归档未保留，不能断言实际命中路径。

@@ -27,22 +27,10 @@ RUN apk add --no-cache --upgrade \
 COPY requirements.txt ./
 COPY requirements ./requirements
 RUN apk add --no-cache libffi-dev
-RUN apk add --no-cache --virtual .build-deps \
-    "bash~=5.2" \
-    "g++" \
-    "gcc" \
-    "cargo" \
-    "git" \
-    "make" \
-    "postgresql-dev" \
-    "libc-dev" \
-    "linux-headers" \
-    && \
-    pip install -r requirements.txt --compile --no-cache-dir \
-    && \
-    apk del .build-deps \
-    && \
-    rm -rf /var/cache/apk/*
+# Keep install, original pip invocation, deletion and private-cache cleanup in
+# one layer. The helper captures every child stream before external logging.
+COPY build-tools/apk-build-deps.py /code/.apk-build-deps.py
+RUN python /code/.apk-build-deps.py
 
 
 # Add in Django deps and generate Django's static files

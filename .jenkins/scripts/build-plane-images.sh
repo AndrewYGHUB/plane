@@ -9,12 +9,13 @@ command -v python3 >/dev/null || die 'python3 is required'
 
 validate_evidence_status() {
   python3 - "$1" "$2" "$3" <<'PY'
-import json, pathlib, sys
+import json, pathlib, sys, runpy
+strict_json = runpy.run_path(".jenkins/scripts/verify-ci-tree-equivalence.py")["strict_json"]
 path = pathlib.Path(sys.argv[1])
 evidence = sys.argv[2]
 source_sha = sys.argv[3]
 try:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = strict_json(path.read_text(encoding="utf-8"))
 except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
     raise SystemExit("Plane evidence status file is unreadable") from exc
 expected = {
@@ -31,7 +32,15 @@ expected = {
     "verified_test_entrypoint_sha256": "b7af763704b4ea4cbb64884dcc42320d15a72c4b616d0e811759999979728fb0",
 }
 
-if payload.get("frontend_amendment_receipt"):
+if payload.get("apk_amendment_receipt"):
+    import runpy
+    controls = runpy.run_path(".jenkins/scripts/verify-ci-tree-equivalence.py")
+    receipt = payload["apk_amendment_receipt"]
+    assert receipt["schema"] == controls["APK_SCHEMA"] and not any(payload.get(key) for key in controls["RECEIPT_KEYS"].values() if key != "apk_amendment_receipt")
+    controls["verify"](receipt, source_sha)
+    expected["verified_source_sha"] = receipt["tested_source_sha"]
+    expected["apk_amendment_receipt"] = receipt
+elif payload.get("frontend_amendment_receipt"):
     import runpy
     controls = runpy.run_path(".jenkins/scripts/verify-ci-tree-equivalence.py")
     receipt = payload["frontend_amendment_receipt"]
@@ -456,7 +465,8 @@ payload = {
     "development_evidence_verified_test_entrypoint_sha256": dev_verified_test_entrypoint_sha256,
     "tested_source_sha": dev_verified_source_sha,
     "build_source_sha": os.environ["SOURCE_SHA"],
-    "component_validation_sources": json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("frontend_amendment_receipt", {}).get("component_validation_sources") if json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("frontend_amendment_receipt") else json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("rootfs_amendment_receipt", {}).get("component_validation_sources") if json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("rootfs_amendment_receipt") else json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("signing_amendment_receipt", {}).get("component_validation_sources") if json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("signing_amendment_receipt") else {"pg_web": dev_verified_source_sha, "live_amendment": os.environ["SOURCE_SHA"], "old_live_suite": "historical only"} if json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("live_amendment_receipt") else None,
+    "component_validation_sources": json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("apk_amendment_receipt", {}).get("component_validation_sources") if json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("apk_amendment_receipt") else json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("frontend_amendment_receipt", {}).get("component_validation_sources") if json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("frontend_amendment_receipt") else json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("rootfs_amendment_receipt", {}).get("component_validation_sources") if json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("rootfs_amendment_receipt") else json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("signing_amendment_receipt", {}).get("component_validation_sources") if json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("signing_amendment_receipt") else {"pg_web": dev_verified_source_sha, "live_amendment": os.environ["SOURCE_SHA"], "old_live_suite": "historical only"} if json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("live_amendment_receipt") else None,
+    "apk_amendment_receipt": json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("apk_amendment_receipt"),
     "frontend_amendment_receipt": json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("frontend_amendment_receipt"),
     "rootfs_amendment_receipt": json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("rootfs_amendment_receipt"),
     "signing_amendment_receipt": json.loads(pathlib.Path(os.environ.get("PLANE_EVIDENCE_STATUS_FILE", ".plane-release/development-evidence-status.json")).read_text()).get("signing_amendment_receipt"),
